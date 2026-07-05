@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import imgLogoWhite from "../imports/ConvenienceStoreApp/7b55f6acb463e894cdce1c9f059b2cb0057e78f8.png";
 import csSvg from "../imports/ConvenienceStoreApp/svg-9r7nhenckt";
@@ -48,6 +48,75 @@ const SAFE_TOP    = "calc(env(safe-area-inset-top, 50px) + 24px)";   // Dynamic 
 const SAFE_BOTTOM = "calc(env(safe-area-inset-bottom, 0px) + 16px)"; // Home indicator + floating dock gap
 // Other system rules (implemented via Tailwind so they read the same everywhere):
 //   horizontal padding = px-5 (20px) · primary card radius = rounded-3xl (24px) · section gap = 24–32px
+
+// ─── Global App Store (localStorage-persisted client state) ────────────────────
+// Single source of truth for everything the user accumulates: points, XP, cart, favourites,
+// claimed coupons, read notifications and the daily spin. Survives reloads. The Supabase layer
+// (user/leaderboard) stays as-is; this powers the client-visible loyalty loop so games, cart
+// and coupons all feel real without depending on a live backend.
+type StoreState = {
+  points: number; xp: number; cart: number;
+  favorites: number[]; claimed: number[]; notifRead: number[];
+  spinDate: string | null; spinsUsed: number;
+};
+const STORE_KEY = "tlj-store-v1";
+const SPINS_PER_DAY = 3;
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const DEFAULT_STORE: StoreState = {
+  points: 2840, xp: 1240, cart: 0,
+  favorites: [], claimed: [3], notifRead: [3, 4],
+  spinDate: null, spinsUsed: 0,
+};
+const loadStore = (): StoreState => {
+  try { const raw = localStorage.getItem(STORE_KEY); return raw ? { ...DEFAULT_STORE, ...JSON.parse(raw) } : DEFAULT_STORE; }
+  catch { return DEFAULT_STORE; }
+};
+
+type StoreApi = StoreState & {
+  spinsLeft: number;
+  addReward: (r: { xp?: number; points?: number }) => void;
+  addToCart: (n?: number) => void;
+  clearCart: () => void;
+  toggleFav: (id: number) => void;
+  claimCoupon: (id: number) => void;
+  markAllRead: (ids: number[]) => void;
+  useSpin: () => boolean;   // returns false if no spins left today
+};
+const StoreCtx = createContext<StoreApi | null>(null);
+const useStore = (): StoreApi => {
+  const ctx = useContext(StoreCtx);
+  if (!ctx) throw new Error("useStore must be used within <StoreProvider>");
+  return ctx;
+};
+
+function StoreProvider({ children }: { children: React.ReactNode }) {
+  const [s, setS] = useState<StoreState>(loadStore);
+  useEffect(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch { /* quota / private mode */ } }, [s]);
+
+  const fresh   = s.spinDate === todayStr() ? s.spinsUsed : 0;   // reset spins each calendar day
+  const spinsLeft = Math.max(0, SPINS_PER_DAY - fresh);
+
+  const api: StoreApi = {
+    ...s, spinsLeft,
+    addReward:  (r) => setS((p) => ({ ...p, xp: p.xp + (r.xp || 0), points: p.points + (r.points || 0) })),
+    addToCart:  (n = 1) => setS((p) => ({ ...p, cart: p.cart + n })),
+    clearCart:  () => setS((p) => ({ ...p, cart: 0 })),
+    toggleFav:  (id) => setS((p) => ({ ...p, favorites: p.favorites.includes(id) ? p.favorites.filter((x) => x !== id) : [...p.favorites, id] })),
+    claimCoupon:(id) => setS((p) => (p.claimed.includes(id) ? p : { ...p, claimed: [...p.claimed, id] })),
+    markAllRead:(ids) => setS((p) => ({ ...p, notifRead: Array.from(new Set([...p.notifRead, ...ids])) })),
+    useSpin:    () => {
+      let ok = false;
+      setS((p) => {
+        const usedToday = p.spinDate === todayStr() ? p.spinsUsed : 0;
+        if (usedToday >= SPINS_PER_DAY) { ok = false; return p; }
+        ok = true;
+        return { ...p, spinDate: todayStr(), spinsUsed: usedToday + 1 };
+      });
+      return ok;
+    },
+  };
+  return <StoreCtx.Provider value={api}>{children}</StoreCtx.Provider>;
+}
 
 // ─── Animation Variants ───────────────────────────────────────────────────────
 // Emil Kowalski easing — custom curves carry more "punch" than CSS defaults.
@@ -231,7 +300,9 @@ const NOTIFICATIONS = [
 function NotificationBtn() {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
-  const unread = NOTIFICATIONS.filter((n) => !n.read).length;
+  const store  = useStore();
+  const isRead = (n: { id: number }) => store.notifRead.includes(n.id);
+  const unread = NOTIFICATIONS.filter((n) => !isRead(n)).length;
 
   return (
     <>
@@ -282,7 +353,8 @@ function NotificationBtn() {
                 </div>
                 <motion.button
                   className="text-[12px] font-medium px-3 py-1.5 rounded-xl"
-                  style={{ background: "rgba(14,92,55,0.08)", color: H.primary, fontFamily: fontSans }}
+                  style={{ background: "rgba(14,92,55,0.08)", color: H.primary, fontFamily: fontSans, opacity: unread ? 1 : 0.5 }}
+                  onClick={() => store.markAllRead(NOTIFICATIONS.map((n) => n.id))}
                   whileTap={{ scale: 0.93 }}>
                   Бүгдийг уншсан
                 </motion.button>
@@ -302,17 +374,17 @@ function NotificationBtn() {
                       <motion.div key={n.id} variants={staggerItem}
                         className="flex items-start gap-3 px-5 py-4"
                         style={{ borderBottom: i < NOTIFICATIONS.length - 1 ? `1px solid ${H.border}` : "none",
-                          background: n.read ? "transparent" : "rgba(14,92,55,0.035)" }}>
+                          background: isRead(n) ? "transparent" : "rgba(14,92,55,0.035)" }}>
                         {/* Icon badge */}
                         <div className="size-10 rounded-2xl flex items-center justify-center flex-shrink-0 mt-0.5"
-                          style={{ background: n.read ? H.accent + "40" : `rgba(14,92,55,0.10)` }}>
-                          <n.Icon size={18} color={n.read ? H.muted : H.primary} strokeWidth={1.8} />
+                          style={{ background: isRead(n) ? H.accent + "40" : `rgba(14,92,55,0.10)` }}>
+                          <n.Icon size={18} color={isRead(n) ? H.muted : H.primary} strokeWidth={1.8} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-[13px] font-semibold leading-snug"
-                              style={{ fontFamily: fontDisplay, color: n.read ? H.muted : H.text }}>{n.title}</p>
-                            {!n.read && (
+                              style={{ fontFamily: fontDisplay, color: isRead(n) ? H.muted : H.text }}>{n.title}</p>
+                            {!isRead(n) && (
                               <div className="size-2 rounded-full flex-shrink-0 mt-1.5"
                                 style={{ background: H.primary }} />
                             )}
@@ -944,11 +1016,12 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
   user?: ApiUser | null;
 }) {
   const reduce    = useReducedMotion();
+  const store     = useStore();
+  const pts       = user ? user.upoints : store.points;   // backend when signed in, else local wallet
   const hour      = new Date().getHours();
   const GreetIcon = hour < 12 ? Sun : hour < 18 ? Sunset : Moon;
   const greetText = hour < 12 ? "Өглөөний мэнд" : hour < 18 ? "Өдрийн мэнд" : "Оройн мэнд";
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const pts = user?.upoints || 0;
   const tier = pts >= 5000 ? "Алт" : pts >= 2000 ? "Мөнгө" : "Хүрэл";
   const nextTier = tier === "Хүрэл" ? "Мөнгө" : tier === "Мөнгө" ? "Алт" : null;
   const nextTierPts = tier === "Хүрэл" ? 2000 : tier === "Мөнгө" ? 5000 : 0;
@@ -988,7 +1061,7 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
               style={{ color: "rgba(244,239,216,0.50)", fontFamily: fontSans }}>Upoint оноо · {user?.name || "Та"}</p>
             <p className="text-[56px] font-bold leading-none text-white"
               style={{ fontFamily: fontDisplay, letterSpacing: "-1px" }}>
-              <CountUp to={user?.upoints || 0} />
+              <CountUp to={pts} />
             </p>
 
             {/* Tier badge + next tier nudge */}
@@ -2377,18 +2450,19 @@ function GameScreen({ user, leaderboard, onGameOver }: {
   onGameOver: (gameType: "block" | "merge" | "quiz" | "connect", score: number, xp: number, upoints: number) => void;
 }) {
   const reduce = useReducedMotion();
+  const store  = useStore();
   const [wheelAngle, setWheelAngle] = useState(0);
   const [wheelSpin,  setWheelSpin]  = useState(false);
-  const [wheelSpins, setWheelSpins] = useState(3);
+  const wheelSpins = store.spinsLeft;   // persisted daily spins (resets each calendar day)
   const [lastPrize,  setLastPrize]  = useState<string | null>(null);
   const [scratched,  setScratched]  = useState(false);
   const [activeGame, setActiveGame] = useState<string | null>(null);
-  const xpTotal = user?.xp || 0, xpMax = 2000;
+  const xpTotal = user ? user.xp : store.xp, xpMax = 2000;
   const level = Math.floor(xpTotal / 100) + 1;
   const title = level >= 30 ? "Бялуу Хаан" : level >= 20 ? "Бялуу Мастер" : level >= 10 ? "Мэргэжилтэн" : level >= 5 ? "Дуртай тоглогч" : "Эхлэгч";
 
   const spinWheel = () => {
-    if (wheelSpin || wheelSpins === 0) return;
+    if (wheelSpin || !store.useSpin()) return;   // useSpin reserves today's spin (false if none left)
     setLastPrize(null);
     setWheelSpin(true);
     const extra = 1800 + Math.random() * 720;
@@ -2396,11 +2470,13 @@ function GameScreen({ user, leaderboard, onGameOver }: {
     setWheelAngle(newAngle);
     setTimeout(() => {
       setWheelSpin(false);
-      setWheelSpins((n) => n - 1);
       const seg = 360 / WHEEL_PRIZES.length;
       const norm = ((newAngle % 360) + 360) % 360;
       const idx = Math.floor(((360 - norm + seg / 2) % 360) / seg) % WHEEL_PRIZES.length;
-      setLastPrize(WHEEL_PRIZES[idx].label);
+      const label = WHEEL_PRIZES[idx].label;
+      setLastPrize(label);
+      const m = label.match(/\+(\d+)\s*pt/i);      // award point prizes straight into the wallet
+      if (m) store.addReward({ points: parseInt(m[1], 10) });
     }, 2800);
   };
 
@@ -2757,9 +2833,10 @@ function GameScreen({ user, leaderboard, onGameOver }: {
 
 // ─── SHOP SCREEN ──────────────────────────────────────────────────────────────
 function ShopScreen({ onAddToCart }: { onAddToCart: () => void }) {
+  const store = useStore();
   const [cat, setCat]     = useState("all");
   const [query, setQuery] = useState("");
-  const [favs, setFavs]   = useState<number[]>([]);
+  const favs = store.favorites;   // persisted favourites
 
   const filtered = PRODUCTS.filter(
     (p) => (cat === "all" || p.cat === cat) && (!query || p.name.toLowerCase().includes(query.toLowerCase()))
@@ -2829,7 +2906,7 @@ function ShopScreen({ onAddToCart }: { onAddToCart: () => void }) {
                       <motion.button
                         className="absolute top-2 right-2 size-7 rounded-full flex items-center justify-center"
                         style={{ background: isFav ? H.pink : "rgba(255,255,255,0.82)" }}
-                        onClick={() => setFavs((f) => isFav ? f.filter((x) => x !== p.id) : [...f, p.id])}
+                        onClick={() => store.toggleFav(p.id)}
                         whileTap={{ scale: 0.80 }}
                         animate={{ scale: isFav ? [1, 1.3, 1] : 1 }}
                         transition={{ duration: 0.3 }}>
@@ -2867,7 +2944,8 @@ function ShopScreen({ onAddToCart }: { onAddToCart: () => void }) {
 // ─── REWARDS SCREEN ───────────────────────────────────────────────────────────
 function RewardsScreen({ user }: { user?: ApiUser | null }) {
   const reduce = useReducedMotion();
-  const pts = user?.upoints || 0;
+  const store  = useStore();
+  const pts = user ? user.upoints : store.points;
   const tiers = [
     { label: "Хүрэл", min: 0,     max: 1000,  Icon: Medal,  color: "#CD7F32" },
     { label: "Мөнгө", min: 1000,  max: 5000,  Icon: Medal,  color: "#A8A8A8" },
@@ -3032,6 +3110,8 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
 
 // ─── PROFILE SCREEN ───────────────────────────────────────────────────────────
 function ProfileScreen({ user }: { user?: User | null }) {
+  const store = useStore();
+  const pts = user ? user.upoints : store.points;
   return (
     <div className="flex-1 overflow-y-auto" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
       <motion.div className="relative px-5 pt-5 pb-7"
@@ -3054,11 +3134,11 @@ function ProfileScreen({ user }: { user?: User | null }) {
             <h2 className="text-white text-[20px] font-bold text-center" style={{ fontFamily: fontDisplay }}>{user?.name || "Та"}</h2>
             <div className="flex items-center justify-center gap-1.5 mt-1">
               <Medal size={13} color={H.gold} fill={H.gold} />
-              <p className="text-[12px]" style={{ color: "rgba(244,239,216,0.60)", fontFamily: fontSans }}>{(user?.upoints || 0) >= 5000 ? "Алт" : (user?.upoints || 0) >= 2000 ? "Мөнгө" : "Хүрэл"}н гишүүн · TLJ-{user?.id || 0}</p>
+              <p className="text-[12px]" style={{ color: "rgba(244,239,216,0.60)", fontFamily: fontSans }}>{pts >= 5000 ? "Алт" : pts >= 2000 ? "Мөнгө" : "Хүрэл"}н гишүүн · TLJ-{user?.id || 2840}</p>
             </div>
           </motion.div>
           <motion.div className="flex gap-8 mt-5" variants={staggerContainer} initial="hidden" animate="show">
-            {[{ v: user?.orders || 0, l: "Захиалга" }, { v: user?.upoints || 0, l: "Оноо" }, { v: user?.saved_items || 0, l: "Хадгалсан" }].map((s) => (
+            {[{ v: user?.orders || 47, l: "Захиалга" }, { v: pts, l: "Оноо" }, { v: user ? user.saved_items : store.favorites.length, l: "Хадгалсан" }].map((s) => (
               <motion.div key={s.l} variants={scaleIn} className="text-center">
                 <p className="text-white font-bold text-[20px] leading-none" style={{ fontFamily: fontDisplay }}>
                   <CountUp to={s.v} />
@@ -3144,10 +3224,11 @@ function ProfileScreen({ user }: { user?: User | null }) {
 }
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
-export default function App() {
+function AppInner() {
+  const store = useStore();
+  const cartCount = store.cart;
   const [tab, setTab]             = useState<Tab>("home");
   const [dir, setDir]             = useState(0);
-  const [cartCount, setCartCount] = useState(0);
   const [missions,  setMissions]  = useState(MISSIONS);
   const [user, setUser]             = useState<ApiUser | null>(null);
   const [leaderboard, setLeaderboard] = useState<ApiUser[]>([]);
@@ -3175,7 +3256,8 @@ export default function App() {
   };
 
   const handleGameOver = async (gameType: "block" | "merge" | "quiz" | "connect", score: number, xp: number, upoints: number) => {
-    if (!user) return;
+    store.addReward({ xp, points: upoints });   // client wallet — always accrues + persists locally
+    if (!user) return;                           // backend sync only when a Supabase user exists
     await saveGameScore(user.id, gameType, score);
     await addXp(user.id, xp, upoints);
     setUser((prev) => prev ? { ...prev, xp: prev.xp + xp, upoints: prev.upoints + upoints } : prev);
@@ -3188,7 +3270,7 @@ export default function App() {
     setTab(newTab);
   };
 
-  const addToCart = () => setCartCount((n) => n + 1);
+  const addToCart = () => store.addToCart(1);
   const completeM = (id: number) =>
     setMissions((prev) => prev.map((m) => m.id === id ? { ...m, done: true } : m));
 
@@ -3231,5 +3313,14 @@ export default function App() {
       {/* ── Liquid Glass Tab Bar — floats above content ── */}
       <BottomNav active={tab} onChange={handleNav} />
     </div>
+  );
+}
+
+// Root: wraps the app in the persistent store so every screen shares one source of truth.
+export default function App() {
+  return (
+    <StoreProvider>
+      <AppInner />
+    </StoreProvider>
   );
 }
