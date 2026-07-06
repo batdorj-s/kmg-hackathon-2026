@@ -1664,6 +1664,8 @@ const shapeBounds = (shape: number[][]) => ({
 function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: () => void; onScore?: (score: number, xp: number, upoints: number) => void }) {
   const reduce = useReducedMotion();
   const boardRef = useRef<HTMLDivElement>(null);
+  const dragElRef = useRef<HTMLElement | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
   const [board, setBoard] = useState<(number | null)[][]>(emptyBoard);
   const [tray,  setTray]  = useState<BPiece[]>(() => [randPiece(), randPiece(), randPiece()]);
   const [sel,   setSel]   = useState(0);
@@ -1683,8 +1685,8 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     setSel(0); setScore(0); setCombo(0); setEarned([]); setToast(null); setHover(null); setOver(false); setScored(false);
   };
 
-  const place = (r: number, c: number) => {
-    const piece = tray[sel];
+  const place = (r: number, c: number, idx: number = sel) => {
+    const piece = tray[idx];
     if (over || !piece || !canPlace(board, piece.shape, r, c)) return;
     const nb = board.map((row) => row.slice());
     piece.shape.forEach(([dr, dc]) => { nb[r + dr][c + dc] = piece.type; });
@@ -1694,7 +1696,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     for (let j = 0; j < 8; j++) { let f = true; for (let i = 0; i < 8; i++) if (nb[i][j] === null) { f = false; break; } if (f) fullCols.push(j); }
     const lines = fullRows.length + fullCols.length;
 
-    let nt = tray.filter((_, i) => i !== sel);
+    let nt = tray.filter((_, i) => i !== idx);
     if (nt.length === 0) nt = [randPiece(), randPiece(), randPiece()];
     setTray(nt); setSel(0); setHover(null);
 
@@ -1708,6 +1710,30 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     } else {
       setBoard(nb); setCombo(0); setScore((s) => s + piece.shape.length);
     }
+  };
+
+  // Resolve which board cell the dragged shape's TOP-LEFT block sits over.
+  // Anchored to the visible (lifted + scaled) shape element — not the finger — so the
+  // ghost preview lands exactly where the piece will drop. Row/col is computed from the
+  // board grid geometry (cell pitch), which is robust to the 3px inter-cell gaps that
+  // elementsFromPoint would otherwise miss.
+  const cellUnderShape = (): { r: number; c: number } | null => {
+    const el = dragElRef.current;
+    const boardEl = boardRef.current;
+    if (!el || !boardEl) return null;
+    const origin = boardEl.querySelector('[data-pos="0-0"]') as HTMLElement | null;
+    if (!origin) return null;
+    const cols = Number(el.dataset.cols) || 1;
+    const rows = Number(el.dataset.rows) || 1;
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / cols / 2;   // centre of the shape's first block
+    const y = rect.top + rect.height / rows / 2;
+    const o = origin.getBoundingClientRect();
+    const GAP = 3;
+    const c = Math.floor((x - o.left) / (o.width + GAP));
+    const r = Math.floor((y - o.top) / (o.height + GAP));
+    if (r < 0 || r > 7 || c < 0 || c > 7) return null;
+    return { r, c };
   };
 
   // Reward milestones — one toast per newly-crossed threshold
@@ -1812,52 +1838,53 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
               Хэсгээ сонгоод самбар дээр дарж байрлуул · Мөр/багана дүүргэвэл цэвэрлэгдэнэ
             </p>
 
-            {/* ── Tray (3 pieces) ── */}
-            <div className="flex items-center justify-center gap-3 w-full">
+            {/* ── Tray (3 pieces) — static slot stays put, only the shape lifts & drags ── */}
+            <div className="flex items-center justify-center gap-3 w-full" style={{ minHeight: 92 }}>
               {tray.map((p, i) => {
                 const b = shapeBounds(p.shape);
                 const on = i === sel;
                 const bt = BLOCK_TYPES[p.type];
+                const isDragging = dragging === i;
                 return (
-                  <motion.button key={p.id}
+                  <motion.div key={p.id}
                     onClick={() => setSel(i)}
-                    drag
-                    onDragStart={() => { setSel(i); setHover(null); }}
-                    onDrag={(_, info) => {
-                      const el = document.elementFromPoint(info.point.x, info.point.y);
-                      const cellEl = el?.closest("[data-pos]");
-                      if (cellEl) {
-                        const [r, c] = cellEl.getAttribute("data-pos")!.split("-").map(Number);
-                        setHover({ r, c });
-                      } else {
-                        setHover(null);
-                      }
-                    }}
-                    onDragEnd={(_, info) => {
-                      const el = document.elementFromPoint(info.point.x, info.point.y);
-                      const cellEl = el?.closest("[data-pos]");
-                      if (cellEl) {
-                        const [r, c] = cellEl.getAttribute("data-pos")!.split("-").map(Number);
-                        place(r, c);
-                      }
-                      setHover(null);
-                    }}
-                    whileDrag={{ scale: 1.08, zIndex: 20, boxShadow: SHADOW_FLOAT, cursor: "grabbing" }}
-                    className="rounded-2xl p-3 flex items-center justify-center"
-                    style={{ background: on ? bt.bg : H.card, border: `2px solid ${on ? bt.color : H.border}`,
-                      minWidth: 84, minHeight: 84, boxShadow: on ? `0 6px 18px ${bt.color}33` : "none" }}
-                    animate={{ scale: on ? 1.04 : 1 }}
-                    whileTap={{ scale: 0.94 }}
+                    className="rounded-2xl flex items-center justify-center relative"
+                    style={{ minWidth: 84, minHeight: 84, background: on ? bt.bg : H.card,
+                      border: `2px solid ${on ? bt.color : H.border}`,
+                      boxShadow: on ? `0 6px 18px ${bt.color}33` : "none" }}
+                    animate={{ scale: on && !isDragging ? 1.04 : 1 }}
                     transition={{ type: "spring", stiffness: 400, damping: 22 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${b.cols}, 1fr)`, gap: 3 }}>
-                      {Array.from({ length: b.rows * b.cols }).map((_, k) => {
-                        const rr = Math.floor(k / b.cols), cc = k % b.cols;
-                        const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
-                        return <div key={k} style={{ width: 15, height: 15, borderRadius: 4,
-                          background: fill ? bt.color : "transparent" }} />;
-                      })}
-                    </div>
-                  </motion.button>
+                    {/* Draggable wrapper follows the finger; snaps back if not dropped on the board */}
+                    <motion.div
+                      drag
+                      dragSnapToOrigin
+                      onDragStart={(e) => {
+                        setSel(i); setDragging(i); setHover(null);
+                        dragElRef.current = (e.currentTarget as HTMLElement).querySelector("[data-shape]") as HTMLElement;
+                      }}
+                      onDrag={() => setHover(cellUnderShape())}
+                      onDragEnd={() => {
+                        const cell = cellUnderShape();
+                        if (cell) place(cell.r, cell.c, i);
+                        setDragging(null); setHover(null);
+                      }}
+                      whileDrag={{ zIndex: 50, opacity: 0.85 }}
+                      style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content", margin: "auto", zIndex: isDragging ? 50 : 1 }}>
+                      {/* Inner content lifts above the finger & scales up while dragging so placement is visible */}
+                      <motion.div data-shape data-cols={b.cols} data-rows={b.rows}
+                        animate={{ y: isDragging ? -54 : 0, scale: isDragging ? 1.85 : 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                        style={{ display: "grid", gridTemplateColumns: `repeat(${b.cols}, 1fr)`, gap: 3,
+                          transformOrigin: "center bottom" }}>
+                        {Array.from({ length: b.rows * b.cols }).map((_, k) => {
+                          const rr = Math.floor(k / b.cols), cc = k % b.cols;
+                          const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
+                          return <div key={k} style={{ width: 15, height: 15, borderRadius: 4,
+                            background: fill ? bt.color : "transparent" }} />;
+                        })}
+                      </motion.div>
+                    </motion.div>
+                  </motion.div>
                 );
               })}
             </div>
@@ -2005,14 +2032,8 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
     setSel(i);                                          // switch selection
   };
 
-  const handleDragEnd = (sourceIdx: number, info: { point: { x: number; y: number } }) => {
-    if (!info.point) { setSel(null); return; }
-    const els = document.elementsFromPoint(info.point.x, info.point.y);
-    const cellEl = els.find((el) => el.hasAttribute("data-cell"));
-    if (!cellEl) { setSel(null); return; }
-    const targetIdx = Number(cellEl.getAttribute("data-cell"));
+  const handleMergeDrop = (sourceIdx: number, targetIdx: number) => {
     if (targetIdx === sourceIdx) { setSel(null); return; }
-
     const sv = board[sourceIdx];
     const tv = board[targetIdx];
 
@@ -2030,6 +2051,18 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
       return;
     }
     setSel(null);                                        // different items — snap back
+  };
+
+  const getMergeTarget = (x: number, y: number): number | null => {
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const gap = 6;
+    const size = (rect.width - gap * 5) / 6;
+    const col = Math.floor((x - rect.left) / (size + gap));
+    const row = Math.floor((y - rect.top) / (size + gap));
+    const idx = row * 6 + col;
+    if (idx < 0 || idx >= 36) return null;
+    return idx;
   };
 
   useEffect(() => { if (!burst) return; const t = setTimeout(() => setBurst(null), 550); return () => clearTimeout(t); }, [burst]);
@@ -2102,11 +2135,6 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 return (
                   <motion.button key={i} data-cell={i}
                     onClick={() => tap(i)}
-                    drag={v !== null}
-                    dragConstraints={gridRef}
-                    dragElastic={0.05}
-                    onDragStart={() => setSel(i)}
-                    onDragEnd={(_, info) => handleDragEnd(i, info)}
                     className="relative rounded-2xl flex items-center justify-center overflow-visible"
                     style={{
                       aspectRatio: "1 / 1",
@@ -2115,20 +2143,34 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
                       boxShadow: isSel ? `0 10px 22px ${it?.color}44` : it ? "0 2px 6px rgba(14,92,55,0.06)" : "none",
                     }}
                     animate={{ scale: isSel ? 1.09 : 1 }}
-                    whileDrag={v !== null ? { scale: 1.12, zIndex: 10, boxShadow: SHADOW_FLOAT } : undefined}
                     whileTap={v === null ? { scale: 0.94 } : undefined}
                     transition={{ type: "spring", stiffness: 420, damping: 22 }}>
                     {it && (
-                      <motion.div key={v} className="flex items-center justify-center"
-                        initial={{ scale: reduce ? 1 : 1.35, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        transition={{ type: "spring", stiffness: 440, damping: 20 }}>
-                        <it.Icon size={26} color={it.color} strokeWidth={2}
-                          fill={v! >= 7 ? it.color : "none"} fillOpacity={v! >= 7 ? 0.14 : 0} />
-                        {v! >= 3 && (
-                          <span className="absolute bottom-1 right-1.5 text-[8px] font-bold"
-                            style={{ color: it.color, fontFamily: fontSans, opacity: 0.7 }}>{v}</span>
-                        )}
+                      <motion.div
+                        drag={v !== null}
+                        dragConstraints={gridRef}
+                        dragElastic={0.05}
+                        dragSnapToOrigin
+                        onDragStart={() => setSel(i)}
+                        onDragEnd={(_, info) => {
+                          if (!info.point) { setSel(null); return; }
+                          const targetIdx = getMergeTarget(info.point.x, info.point.y);
+                          if (targetIdx !== null) handleMergeDrop(i, targetIdx);
+                          else setSel(null);
+                        }}
+                        whileDrag={{ scale: 1.3, zIndex: 10 }}
+                        style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content" }}>
+                        <motion.div key={v} className="flex items-center justify-center"
+                          initial={{ scale: reduce ? 1 : 1.35, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ type: "spring", stiffness: 440, damping: 20 }}>
+                          <it.Icon size={26} color={it.color} strokeWidth={2}
+                            fill={v! >= 7 ? it.color : "none"} fillOpacity={v! >= 7 ? 0.14 : 0} />
+                          {v! >= 3 && (
+                            <span className="absolute bottom-1 right-1.5 text-[8px] font-bold"
+                              style={{ color: it.color, fontFamily: fontSans, opacity: 0.7 }}>{v}</span>
+                          )}
+                        </motion.div>
                       </motion.div>
                     )}
                     {/* Merge sparkle burst */}
