@@ -1663,6 +1663,7 @@ const shapeBounds = (shape: number[][]) => ({
 
 function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: () => void; onScore?: (score: number, xp: number, upoints: number) => void }) {
   const reduce = useReducedMotion();
+  const boardRef = useRef<HTMLDivElement>(null);
   const [board, setBoard] = useState<(number | null)[][]>(emptyBoard);
   const [tray,  setTray]  = useState<BPiece[]>(() => [randPiece(), randPiece(), randPiece()]);
   const [sel,   setSel]   = useState(0);
@@ -1780,7 +1781,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
           <div className="flex-1 flex flex-col items-center justify-center px-5 gap-5"
             style={{ paddingBottom: SAFE_BOTTOM }}>
 
-            <div className="rounded-2xl p-1.5"
+            <div ref={boardRef} className="rounded-2xl p-1.5"
               style={{ background: H.card, border: `1px solid ${H.border}`, width: "min(86vw, 360px)",
                 boxShadow: "0 8px 30px rgba(14,92,55,0.10)", display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 3 }}>
               {board.map((row, r) => row.map((v, c) => {
@@ -1789,7 +1790,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 const flash  = v === -1;
                 const bt = filled ? BLOCK_TYPES[v as number] : null;
                 return (
-                  <button key={`${r}-${c}`}
+                  <button key={`${r}-${c}`} data-pos={`${r}-${c}`}
                     onClick={() => place(r, c)}
                     onMouseEnter={() => setHover({ r, c })}
                     onMouseLeave={() => setHover((h) => (h && h.r === r && h.c === c ? null : h))}
@@ -1818,7 +1819,30 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 const on = i === sel;
                 const bt = BLOCK_TYPES[p.type];
                 return (
-                  <motion.button key={p.id} onClick={() => setSel(i)}
+                  <motion.button key={p.id}
+                    onClick={() => setSel(i)}
+                    drag
+                    onDragStart={() => { setSel(i); setHover(null); }}
+                    onDrag={(_, info) => {
+                      const el = document.elementFromPoint(info.point.x, info.point.y);
+                      const cellEl = el?.closest("[data-pos]");
+                      if (cellEl) {
+                        const [r, c] = cellEl.getAttribute("data-pos")!.split("-").map(Number);
+                        setHover({ r, c });
+                      } else {
+                        setHover(null);
+                      }
+                    }}
+                    onDragEnd={(_, info) => {
+                      const el = document.elementFromPoint(info.point.x, info.point.y);
+                      const cellEl = el?.closest("[data-pos]");
+                      if (cellEl) {
+                        const [r, c] = cellEl.getAttribute("data-pos")!.split("-").map(Number);
+                        place(r, c);
+                      }
+                      setHover(null);
+                    }}
+                    whileDrag={{ scale: 1.08, zIndex: 20, boxShadow: SHADOW_FLOAT, cursor: "grabbing" }}
                     className="rounded-2xl p-3 flex items-center justify-center"
                     style={{ background: on ? bt.bg : H.card, border: `2px solid ${on ? bt.color : H.border}`,
                       minWidth: 84, minHeight: 84, boxShadow: on ? `0 6px 18px ${bt.color}33` : "none" }}
@@ -1939,6 +1963,7 @@ const initMergeBoard = () => {
 
 function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: () => void; onScore?: (score: number, xp: number, upoints: number) => void }) {
   const reduce = useReducedMotion();
+  const gridRef = useRef<HTMLDivElement>(null);
   const [board, setBoard] = useState<(number | null)[]>(initMergeBoard);
   const [sel,   setSel]   = useState<number | null>(null);
   const [xp,    setXp]    = useState(0);
@@ -1978,6 +2003,33 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
       return;
     }
     setSel(i);                                          // switch selection
+  };
+
+  const handleDragEnd = (sourceIdx: number, info: { point: { x: number; y: number } }) => {
+    if (!info.point) { setSel(null); return; }
+    const els = document.elementsFromPoint(info.point.x, info.point.y);
+    const cellEl = els.find((el) => el.hasAttribute("data-cell"));
+    if (!cellEl) { setSel(null); return; }
+    const targetIdx = Number(cellEl.getAttribute("data-cell"));
+    if (targetIdx === sourceIdx) { setSel(null); return; }
+
+    const sv = board[sourceIdx];
+    const tv = board[targetIdx];
+
+    if (tv === null) {                                   // move
+      const nb = [...board]; nb[targetIdx] = sv; nb[sourceIdx] = null; setBoard(nb); setSel(null); return;
+    }
+    if (tv === sv && tv < MAX_LEVEL) {                    // merge
+      const nl = tv + 1;
+      const nb = [...board]; nb[targetIdx] = nl; nb[sourceIdx] = null; setBoard(nb); setSel(null);
+      setXp((x) => x + (nl >= 5 ? nl * 2 : nl));
+      setSeen((s) => (s.includes(nl) ? s : [...s, nl]));
+      if (!reduce) setBurst({ i: targetIdx, k: ++mergeBurstKey });
+      const rw = MERGE_REWARDS.find((r) => r.level === nl);
+      if (rw) setToast({ label: rw.label, Icon: rw.Icon });
+      return;
+    }
+    setSel(null);                                        // different items — snap back
   };
 
   useEffect(() => { if (!burst) return; const t = setTimeout(() => setBurst(null), 550); return () => clearTimeout(t); }, [burst]);
@@ -2043,12 +2095,18 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
           <div className="flex-1 flex flex-col items-center justify-center px-5 gap-4"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}>
 
-            <div style={{ width: "min(90vw, 384px)", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
+            <div ref={gridRef} style={{ width: "min(90vw, 384px)", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
               {board.map((v, i) => {
                 const it = v !== null ? MERGE_ITEMS[v] : null;
                 const isSel = sel === i;
                 return (
-                  <motion.button key={i} onClick={() => tap(i)}
+                  <motion.button key={i} data-cell={i}
+                    onClick={() => tap(i)}
+                    drag={v !== null}
+                    dragConstraints={gridRef}
+                    dragElastic={0.05}
+                    onDragStart={() => setSel(i)}
+                    onDragEnd={(_, info) => handleDragEnd(i, info)}
                     className="relative rounded-2xl flex items-center justify-center overflow-visible"
                     style={{
                       aspectRatio: "1 / 1",
@@ -2057,7 +2115,8 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
                       boxShadow: isSel ? `0 10px 22px ${it?.color}44` : it ? "0 2px 6px rgba(14,92,55,0.06)" : "none",
                     }}
                     animate={{ scale: isSel ? 1.09 : 1 }}
-                    whileTap={{ scale: 0.94 }}
+                    whileDrag={v !== null ? { scale: 1.12, zIndex: 10, boxShadow: SHADOW_FLOAT } : undefined}
+                    whileTap={v === null ? { scale: 0.94 } : undefined}
                     transition={{ type: "spring", stiffness: 420, damping: 22 }}>
                     {it && (
                       <motion.div key={v} className="flex items-center justify-center"

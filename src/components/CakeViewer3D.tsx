@@ -56,7 +56,7 @@ const CAT_COLORS_3D: Record<string, string> = {
 
 export default function CakeViewer3D({ glbUrl, name, basePrice, onSizeChange }: Props) {
   const ref = useRef<HTMLElement>(null);
-  const [mode, setMode] = useState<"image" | "3d">("image");
+  const [mode, setMode] = useState<"image" | "3d">("3d");
   const [sizeIdx, setSizeIdx] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
