@@ -1665,6 +1665,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
   const reduce = useReducedMotion();
   const boardRef = useRef<HTMLDivElement>(null);
   const dragElRef = useRef<HTMLElement | null>(null);
+  const hoverRef = useRef<{ r: number; c: number } | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   const [board, setBoard] = useState<(number | null)[][]>(emptyBoard);
   const [tray,  setTray]  = useState<BPiece[]>(() => [randPiece(), randPiece(), randPiece()]);
@@ -1712,28 +1713,19 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     }
   };
 
-  // Resolve which board cell the dragged shape's TOP-LEFT block sits over.
-  // Anchored to the visible (lifted + scaled) shape element — not the finger — so the
-  // ghost preview lands exactly where the piece will drop. Row/col is computed from the
-  // board grid geometry (cell pitch), which is robust to the 3px inter-cell gaps that
-  // elementsFromPoint would otherwise miss.
-  const cellUnderShape = (): { r: number; c: number } | null => {
-    const el = dragElRef.current;
+  // Resolve which board cell the finger/cursor is over.
+  // Computed from the board grid geometry (finger position → row/col), which is fast
+  // (single getBoundingClientRect) and avoids forced layout on every drag frame.
+  const cellFromPoint = (x: number, y: number): { r: number; c: number } | null => {
     const boardEl = boardRef.current;
-    if (!el || !boardEl) return null;
-    const origin = boardEl.querySelector('[data-pos="0-0"]') as HTMLElement | null;
-    if (!origin) return null;
-    const cols = Number(el.dataset.cols) || 1;
-    const rows = Number(el.dataset.rows) || 1;
-    const rect = el.getBoundingClientRect();
-    const x = rect.left + rect.width / cols / 2;   // centre of the shape's first block
-    const y = rect.top + rect.height / rows / 2;
-    const o = origin.getBoundingClientRect();
+    if (!boardEl) return null;
+    const rect = boardEl.getBoundingClientRect();
     const GAP = 3;
-    const c = Math.floor((x - o.left) / (o.width + GAP));
-    const r = Math.floor((y - o.top) / (o.height + GAP));
-    if (r < 0 || r > 7 || c < 0 || c > 7) return null;
-    return { r, c };
+    const pitch = (rect.width - 7 * GAP) / 8;
+    const col = Math.floor((x - rect.left) / (pitch + GAP));
+    const row = Math.floor((y - rect.top) / (pitch + GAP));
+    if (row < 0 || row > 7 || col < 0 || col > 7) return null;
+    return { r: row, c: col };
   };
 
   // Reward milestones — one toast per newly-crossed threshold
@@ -1818,8 +1810,8 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 return (
                   <button key={`${r}-${c}`} data-pos={`${r}-${c}`}
                     onClick={() => { if (dragElRef.current) return; place(r, c); }}
-                    onMouseEnter={() => setHover({ r, c })}
-                    onMouseLeave={() => setHover((h) => (h && h.r === r && h.c === c ? null : h))}
+                    onMouseEnter={() => { if (dragging === null) setHover({ r, c }); }}
+                    onMouseLeave={() => { if (dragging === null) setHover((h) => (h && h.r === r && h.c === c ? null : h)); }}
                     className="relative rounded-md flex items-center justify-center"
                     style={{
                       aspectRatio: "1 / 1",
@@ -1860,23 +1852,31 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                       dragSnapToOrigin
                       onDragStart={(e) => {
                         setSel(i); setDragging(i); setHover(null);
+                        hoverRef.current = null;
                         dragElRef.current = (e.currentTarget as HTMLElement).querySelector("[data-shape]") as HTMLElement;
                       }}
-                      onDrag={() => setHover(cellUnderShape())}
-                      onDragEnd={() => {
-                        const cell = cellUnderShape();
+                      onDrag={(_, info) => {
+                        const cell = cellFromPoint(info.point.x, info.point.y);
+                        if (cell?.r === hoverRef.current?.r && cell?.c === hoverRef.current?.c) return;
+                        if (!cell && !hoverRef.current) return;
+                        hoverRef.current = cell;
+                        setHover(cell);
+                      }}
+                      onDragEnd={(_, info) => {
+                        const cell = cellFromPoint(info.point.x, info.point.y);
                         if (cell) place(cell.r, cell.c, i);
                         setDragging(null); setHover(null);
+                        hoverRef.current = null;
                         queueMicrotask(() => { dragElRef.current = null; });
                       }}
                       whileDrag={{ zIndex: 50, opacity: 0.85 }}
                       style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content", margin: "auto", zIndex: isDragging ? 50 : 1 }}>
                       {/* Inner content lifts above the finger & scales up while dragging so placement is visible */}
                       <motion.div data-shape data-cols={b.cols} data-rows={b.rows}
-                        animate={{ y: isDragging ? -54 : 0, scale: isDragging ? 1.85 : 1 }}
+                        animate={{ y: isDragging ? (reduce ? -16 : -54) : 0, scale: isDragging ? (reduce ? 1.15 : 1.85) : 1 }}
                         transition={{ type: "spring", stiffness: 500, damping: 32 }}
                         style={{ display: "grid", gridTemplateColumns: `repeat(${b.cols}, 1fr)`, gap: 3,
-                          transformOrigin: "center bottom" }}>
+                          transformOrigin: reduce ? "center center" : "center bottom" }}>
                         {Array.from({ length: b.rows * b.cols }).map((_, k) => {
                           const rr = Math.floor(k / b.cols), cc = k % b.cols;
                           const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
