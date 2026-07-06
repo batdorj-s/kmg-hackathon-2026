@@ -1817,7 +1817,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 const bt = filled ? BLOCK_TYPES[v as number] : null;
                 return (
                   <button key={`${r}-${c}`} data-pos={`${r}-${c}`}
-                    onClick={() => place(r, c)}
+                    onClick={() => { if (dragElRef.current) return; place(r, c); }}
                     onMouseEnter={() => setHover({ r, c })}
                     onMouseLeave={() => setHover((h) => (h && h.r === r && h.c === c ? null : h))}
                     className="relative rounded-md flex items-center justify-center"
@@ -1867,6 +1867,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                         const cell = cellUnderShape();
                         if (cell) place(cell.r, cell.c, i);
                         setDragging(null); setHover(null);
+                        queueMicrotask(() => { dragElRef.current = null; });
                       }}
                       whileDrag={{ zIndex: 50, opacity: 0.85 }}
                       style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content", margin: "auto", zIndex: isDragging ? 50 : 1 }}>
@@ -1991,6 +1992,7 @@ const initMergeBoard = () => {
 function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: () => void; onScore?: (score: number, xp: number, upoints: number) => void }) {
   const reduce = useReducedMotion();
   const gridRef = useRef<HTMLDivElement>(null);
+  const mergeDragRef = useRef(false);
   const [board, setBoard] = useState<(number | null)[]>(initMergeBoard);
   const [sel,   setSel]   = useState<number | null>(null);
   const [xp,    setXp]    = useState(0);
@@ -2134,7 +2136,7 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 const isSel = sel === i;
                 return (
                   <motion.button key={i} data-cell={i}
-                    onClick={() => tap(i)}
+                    onClick={() => { if (mergeDragRef.current) return; tap(i); }}
                     className="relative rounded-2xl flex items-center justify-center overflow-visible"
                     style={{
                       aspectRatio: "1 / 1",
@@ -2151,12 +2153,13 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
                         dragConstraints={gridRef}
                         dragElastic={0.05}
                         dragSnapToOrigin
-                        onDragStart={() => setSel(i)}
+                        onDragStart={() => { mergeDragRef.current = true; setSel(i); }}
                         onDragEnd={(_, info) => {
-                          if (!info.point) { setSel(null); return; }
+                          if (!info.point) { setSel(null); mergeDragRef.current = false; return; }
                           const targetIdx = getMergeTarget(info.point.x, info.point.y);
                           if (targetIdx !== null) handleMergeDrop(i, targetIdx);
                           else setSel(null);
+                          queueMicrotask(() => { mergeDragRef.current = false; });
                         }}
                         whileDrag={{ scale: 1.3, zIndex: 10 }}
                         style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content" }}>
