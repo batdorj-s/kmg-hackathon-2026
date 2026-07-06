@@ -349,6 +349,14 @@ const CATS = [
   { id: "coffee",  label: "Кофе",    Icon: Coffee     },
   { id: "gift",    label: "Бэлэг",   Icon: Gift       },
 ];
+const CAT_COLORS: Record<string, string> = {
+  cake:    H.primary,
+  bread:   "#8B6914",
+  dessert: H.pink,
+  salad:   "#4A8C5C",
+  coffee:  "#6F4E37",
+  gift:    H.gold,
+};
 const MISSIONS = [
   { id: 1, text: "Өнөөдөр нэвтрэх",        xp: 10, done: true  },
   { id: 2, text: "1 бүтээгдэхүүн захиалах", xp: 50, done: false },
@@ -1035,6 +1043,7 @@ function ProductDetailSheet({
             <div className="px-6 flex items-end justify-between">
               <div className="flex-1">
                 <p className="text-[13px] mb-1" style={{ color: "rgba(244,239,216,0.65)", fontFamily: fontSans }}>
+                  {(() => { const c = CATS.find(x => x.id === product.cat); if (!c) return null; const cc = CAT_COLORS[product.cat] || "#fff"; return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 4, background: "rgba(255,255,255,0.15)" }}><c.Icon size={9} color="rgba(255,255,255,0.8)" strokeWidth={2.5} /></span><span style={{ color: "rgba(255,255,255,0.8)" }}>{c.label}</span></span>; })()}
                   {product.tag}
                 </p>
                 <h1 className="text-[28px] font-bold leading-tight text-white mb-1"
@@ -4255,7 +4264,9 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-[15px] font-bold leading-tight" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
-                            <p className="text-[11px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>{p.tag}</p>
+                            <p className="text-[11px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>
+                              {(() => { const c = CATS.find(x => x.id === p.cat); if (!c) return p.tag; const cc = CAT_COLORS[p.cat] || H.muted; return <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: 3, background: cc + "18" }}><c.Icon size={8} color={cc} strokeWidth={2.5} /></span><span style={{ color: cc }}>{c.label}</span></span>; })()} · {p.tag}
+                            </p>
                             <p className="text-[12px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>{fmt(p.price)} × {it.qty}</p>
                             <p className="text-[16px] font-bold mt-1" style={{ color: H.primary, fontFamily: fontDisplay, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
                           </div>
@@ -4325,6 +4336,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                         <div className="size-14 rounded-xl overflow-hidden flex-shrink-0 relative"><CoverImg src={p.img} alt={p.name} /></div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
+                          {(() => { const c = CATS.find(x => x.id === p.cat); if (!c) return null; const cc = CAT_COLORS[p.cat] || H.muted; return <div className="flex items-center gap-1 mt-0.5"><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: 3, background: cc + "18" }}><c.Icon size={8} color={cc} strokeWidth={2.5} /></span><span className="text-[11px]" style={{ fontFamily: fontSans, color: cc }}>{c.label}</span></div>; })()}
                           <p className="text-[12px] font-bold mt-0.5" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
                         </div>
                         <motion.button
@@ -4485,6 +4497,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                        <div className="h-[100px] relative overflow-hidden"><CoverImg src={p.img} alt={p.name} /></div>
                       <div className="p-2.5">
                         <p className="text-[11px] font-semibold leading-tight line-clamp-2" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
+                        {(() => { const c = CATS.find(x => x.id === p.cat); if (!c) return null; const cc = CAT_COLORS[p.cat] || H.muted; return <div className="flex items-center gap-1 mt-1"><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 12, height: 12, borderRadius: 2, background: cc + "18" }}><c.Icon size={7} color={cc} strokeWidth={2.5} /></span><span className="text-[10px]" style={{ fontFamily: fontSans, color: cc }}>{c.label}</span></div>; })()}
                         <p className="text-[12px] font-bold mt-1" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price)}</p>
                       </div>
                     </motion.button>
