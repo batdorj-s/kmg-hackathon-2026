@@ -4271,7 +4271,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                           </div>
                           <div className="flex items-center gap-1 rounded-full p-0.5" style={{ background: H.bg, border: `1px solid ${H.border}` }}>
                             <motion.button aria-label="Хасах"
-                              onClick={() => store.setQty(it.pid, Math.max(1, it.qty - 1))}
+                              onClick={() => store.setQty(it.pid, it.qty - 1)}
                               whileTap={{ scale: 0.88 }}
                               className="size-8 rounded-full flex items-center justify-center"
                               style={{ background: H.card, border: `1px solid ${H.border}` }}
@@ -4473,7 +4473,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                       whileTap={{ scale: 0.96 }}
                       whileHover={{ y: -2 }}
                       aria-label={`${p.name} нэмэх`}>
-                      <div className="h-[100px] relative"><CoverImg src={p.img} alt={p.name} /></div>
+                       <div className="h-[100px] relative overflow-hidden"><CoverImg src={p.img} alt={p.name} /></div>
                       <div className="p-2.5">
                         <p className="text-[11px] font-semibold leading-tight line-clamp-2" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
                         <p className="text-[12px] font-bold mt-1" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price)}</p>
