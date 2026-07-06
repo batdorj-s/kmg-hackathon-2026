@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext, Component } from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import imgLogoWhite from "../imports/ConvenienceStoreApp/7b55f6acb463e894cdce1c9f059b2cb0057e78f8.png";
 import csSvg from "../imports/ConvenienceStoreApp/svg-9r7nhenckt";
@@ -289,6 +290,9 @@ function NavProvider({ children }: { children: React.ReactNode }) {
 const ease       = [0.23, 1,    0.32, 1]  as const;  // enter / UI transitions
 const easeOut    = [0.16, 1,    0.30, 1]  as const;  // progress bars & reveals
 const easeDrawer = [0.32, 0.72, 0,    1]  as const;  // iOS-like drawer curve (Ionic)
+// Motion system — one duration scale + one easing set + named spring presets.
+// Reference these instead of ad-hoc values so every surface shares the same rhythm.
+const DUR = { fast: 0.16, base: 0.26, slow: 0.4 } as const;
 // Exits reuse the strong ease-out `ease` (never ease-in on UI, which would delay the first
 // frame). Asymmetry comes from shorter exit *durations*, not from an accelerate curve.
 
@@ -1253,7 +1257,7 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
   const reduce    = useReducedMotion();
   const store     = useStore();
   const nav       = useNav();
-  const pts       = user ? user.upoints : store.points;   // backend when signed in, else local wallet
+  const pts       = store.points;   // backend when signed in, else local wallet
   const hour      = new Date().getHours();
   const GreetIcon = hour < 12 ? Sun : hour < 18 ? Sunset : Moon;
   const greetText = hour < 12 ? "Өглөөний мэнд" : hour < 18 ? "Өдрийн мэнд" : "Оройн мэнд";
@@ -1352,7 +1356,7 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
           <div className="flex-1 text-left">
             <p className="text-[15px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>QR уншуулах</p>
             <p className="text-[12px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>
-              Кассанд уншуулж оноо цуглуул · TLJ-2840
+              Кассанд уншуулж оноо цуглуул · TLJ-{user?.id || 2840}
             </p>
           </div>
           {/* Pulse dot = system status (Nielsen #1) */}
@@ -1686,7 +1690,8 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     <AnimatePresence>
       {open && (
         <motion.div className="fixed inset-0 z-[60] flex flex-col"
-          style={{ background: H.bg }}>
+          style={{ background: H.bg }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: DUR.fast, ease }}>
 
           {/* ── Header ── */}
           <div className="flex-shrink-0 relative"
@@ -1950,7 +1955,8 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
     <AnimatePresence>
       {open && (
         <motion.div className="fixed inset-0 z-[60] flex flex-col"
-          style={{ background: H.bg }}>
+          style={{ background: H.bg }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: DUR.fast, ease }}>
 
           {/* ── Header ── */}
           <div className="flex-shrink-0 relative"
@@ -2235,7 +2241,8 @@ function QuizGame({ open, onClose, onScore }: { open: boolean; onClose: () => vo
 
   return createPortal(
     open ? (
-        <div className="fixed inset-0 z-[60] flex flex-col" style={{ background: H.bg }}>
+        <motion.div className="fixed inset-0 z-[60] flex flex-col" style={{ background: H.bg }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: DUR.fast, ease }}>
 
           {/* ── INTRO ── */}
           {phase === "intro" && (
@@ -2433,7 +2440,7 @@ function QuizGame({ open, onClose, onScore }: { open: boolean; onClose: () => vo
               </div>
             </div>
           )}
-        </div>
+        </motion.div>
     ) : null,
     document.body
   );
@@ -2517,7 +2524,8 @@ function ConnectionsGame({ open, onClose, onScore }: { open: boolean; onClose: (
 
   return createPortal(
     open ? (
-      <div className="fixed inset-0 z-[60] flex flex-col" style={{ background: H.bg }}>
+      <motion.div className="fixed inset-0 z-[60] flex flex-col" style={{ background: H.bg }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: DUR.fast, ease }}>
 
         {/* ── Header ── */}
         <div className="flex-shrink-0" style={{ paddingTop: SAFE_TOP }}>
@@ -2675,7 +2683,7 @@ function ConnectionsGame({ open, onClose, onScore }: { open: boolean; onClose: (
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </motion.div>
     ) : null,
     document.body
   );
@@ -2695,7 +2703,7 @@ function GameScreen({ user, leaderboard, onGameOver }: {
   const [lastPrize,  setLastPrize]  = useState<string | null>(null);
   const [scratched,  setScratched]  = useState(false);
   const [activeGame, setActiveGame] = useState<string | null>(null);
-  const xpTotal = user ? user.xp : store.xp, xpMax = 2000;
+  const xpTotal = store.xp, xpMax = 2000;
   const level = Math.floor(xpTotal / 100) + 1;
   const title = level >= 30 ? "Бялуу Хаан" : level >= 20 ? "Бялуу Мастер" : level >= 10 ? "Мэргэжилтэн" : level >= 5 ? "Дуртай тоглогч" : "Эхлэгч";
 
@@ -3074,6 +3082,7 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
   const store = useStore();
   const [cat, setCat]     = useState("all");
   const [query, setQuery] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const favs = store.favorites;   // persisted favourites
 
   const filtered = PRODUCTS.filter(
@@ -3133,8 +3142,9 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
                 const isFav = favs.includes(p.id);
                 return (
                   <motion.div key={p.id} variants={staggerItem}
-                    className="rounded-3xl overflow-hidden"
+                    className="rounded-3xl overflow-hidden cursor-pointer"
                     style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_CARD }}
+                    onClick={() => setSelectedProduct(p)}
                     whileHover={canHover ? { y: -4, boxShadow: SHADOW_FLOAT } : {}}
                     whileTap={{ scale: 0.97 }}
                     transition={{ type: "spring", stiffness: 360, damping: 22 }}>
@@ -3144,7 +3154,7 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
                       <motion.button
                         className="absolute top-2 right-2 size-7 rounded-full flex items-center justify-center"
                         style={{ background: isFav ? H.pink : "rgba(255,255,255,0.82)" }}
-                        onClick={() => store.toggleFav(p.id)}
+                        onClick={(e) => { e.stopPropagation(); store.toggleFav(p.id); }}
                         whileTap={{ scale: 0.80 }}
                         animate={{ scale: isFav ? [1, 1.3, 1] : 1 }}
                         transition={{ duration: 0.3 }}>
@@ -3161,7 +3171,7 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
                         <span className="font-bold text-[13px]" style={{ color: H.primary, fontFamily: fontSans }}>{fmt(p.price)}</span>
                         <motion.button className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-white text-[11px] font-semibold"
                           style={{ background: H.primary, fontFamily: fontSans }}
-                          onClick={() => onAddToCart(p.id)}
+                          onClick={(e) => { e.stopPropagation(); onAddToCart(p.id); }}
                           aria-label={`${p.name} сагсанд нэмэх`}
                           whileTap={{ scale: 0.9 }}>
                           <Plus size={11} color="white" strokeWidth={2.5} /> Сагс
@@ -3175,6 +3185,13 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
           )}
         </AnimatePresence>
       </div>
+
+      {/* Product detail — same sheet as Home; tapping a card opens it */}
+      <ProductDetailSheet
+        product={selectedProduct}
+        onClose={() => setSelectedProduct(null)}
+        onAdd={(pid, qty) => { onAddToCart(pid, qty); setSelectedProduct(null); }}
+      />
     </div>
   );
 }
@@ -3184,7 +3201,7 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
   const reduce = useReducedMotion();
   const store  = useStore();
   const nav    = useNav();
-  const pts = user ? user.upoints : store.points;
+  const pts = store.points;
   const [redeemT, setRedeemT] = useState<typeof REWARDS[0] | null>(null);
   const [redeemState, setRedeemState] = useState<"confirm" | "success" | "error">("confirm");
   const doRedeem = () => {
@@ -3235,12 +3252,12 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
               {["top-0 left-0 border-t-[3px] border-l-[3px] rounded-tl-lg","top-0 right-0 border-t-[3px] border-r-[3px] rounded-tr-lg","bottom-0 left-0 border-b-[3px] border-l-[3px] rounded-bl-lg","bottom-0 right-0 border-b-[3px] border-r-[3px] rounded-br-lg"].map((cls, i) => (
                 <div key={i} className={`absolute size-5 ${cls}`} style={{ borderColor: H.primary }} />
               ))}
-              <QRCodeSVG value={`https://tlj.mn/loyalty/TLJ-${user?.id || 0}`} size={136} fgColor={H.secondary} bgColor={H.card} level="M"
+              <QRCodeSVG value={`https://tlj.mn/loyalty/TLJ-${user?.id || 2840}`} size={136} fgColor={H.secondary} bgColor={H.card} level="M"
                 imageSettings={{ src: LOGO_WHITE, width: 28, height: 19, excavate: true }} />
             </div>
           </motion.div>
           <div className="text-center">
-            <p className="text-white font-bold tracking-[6px] text-[16px]" style={{ fontFamily: fontDisplay }}>TLJ-{user?.id || 0}</p>
+            <p className="text-white font-bold tracking-[6px] text-[16px]" style={{ fontFamily: fontDisplay }}>TLJ-{user?.id || 2840}</p>
             <p className="text-[11px] mt-1" style={{ color: "rgba(244,239,216,0.45)", fontFamily: fontSans }}>Кассанд уншуулж оноо цуглуулаарай</p>
           </div>
         </motion.div>
@@ -3433,7 +3450,7 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
 function ProfileScreen({ user }: { user?: User | null }) {
   const store = useStore();
   const nav = useNav();
-  const pts = user ? user.upoints : store.points;
+  const pts = store.points;
   const menuNav = (label: string) => {
     if (/захиалг/i.test(label)) nav.push("orders");
     else if (/Upoint|лояалти/i.test(label)) nav.push("points");
@@ -3621,7 +3638,7 @@ const listStagger = { hidden: {}, show: { transition: { staggerChildren: 0.05, d
 // ── Full Membership QR ──
 function FullQRScreen({ onBack, user }: { onBack: () => void; user?: ApiUser | null }) {
   const store = useStore();
-  const pts = user ? user.upoints : store.points;
+  const pts = store.points;
   const tier = pts >= 15000 ? "VIP" : pts >= 5000 ? "Алт" : pts >= 2000 ? "Мөнгө" : "Хүрэл";
   const id = `TLJ-${user?.id ?? 2840}`;
   return (
@@ -3651,7 +3668,7 @@ function FullQRScreen({ onBack, user }: { onBack: () => void; user?: ApiUser | n
 // ── Points History ──
 function PointsHistoryScreen({ onBack, user }: { onBack: () => void; user?: ApiUser | null }) {
   const store = useStore();
-  const pts = user ? user.upoints : store.points;
+  const pts = store.points;
   return (
     <ScreenShell title="Оноо түүх" subtitle="Upoint" onBack={onBack}>
       <motion.div className="rounded-3xl p-5 mb-5 relative overflow-hidden"
@@ -3906,7 +3923,7 @@ function OrderDetailScreen({ onBack, order }: { onBack: () => void; order: Order
 // ── Membership Details ──
 function MembershipScreen({ onBack, user }: { onBack: () => void; user?: ApiUser | null }) {
   const store = useStore();
-  const pts = user ? user.upoints : store.points;
+  const pts = store.points;
   const curIdx = TIERS.reduce((a, t, i) => (pts >= t.min ? i : a), 0);
   return (
     <ScreenShell title="Гишүүнчлэл" subtitle="Membership" onBack={onBack}>
@@ -3944,12 +3961,12 @@ function MembershipScreen({ onBack, user }: { onBack: () => void; user?: ApiUser
 // ── Rewards Progress ──
 function RewardsProgressScreen({ onBack, user }: { onBack: () => void; user?: ApiUser | null }) {
   const store = useStore();
-  const pts = user ? user.upoints : store.points;
+  const pts = store.points;
   const curIdx = TIERS.reduce((a, t, i) => (pts >= t.min ? i : a), 0);
   const next = TIERS[curIdx + 1];
   const cur = TIERS[curIdx];
   const pct = next ? Math.min(100, ((pts - cur.min) / (next.min - cur.min)) * 100) : 100;
-  const xp = user ? user.xp : store.xp;
+  const xp = store.xp;
   const level = Math.floor(xp / 100) + 1;
   const xpInLevel = xp % 100;
   return (
@@ -4248,14 +4265,15 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                     <motion.div key={it.pid} layout
                       className="relative overflow-hidden rounded-3xl"
                       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: -40, height: 0, marginBottom: 0 }}
+                      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                       transition={{ type: "spring", stiffness: 420, damping: 30 }}>
-                      <div className="absolute inset-0 flex items-center justify-end pr-6" style={{ background: H.pink }}>
+                      {/* Contained delete affordance — only an 84px zone on the right, never the whole card */}
+                      <div className="absolute inset-y-0 right-0 w-[84px] flex items-center justify-center rounded-r-3xl" style={{ background: H.pink }}>
                         <Trash2 size={20} color="white" strokeWidth={2} />
                       </div>
-                      <motion.div drag="x" dragConstraints={{ left: 0, right: 0 }} dragElastic={{ left: 0.4, right: 0 }}
-                        onDragEnd={(_, info) => { if (info.offset.x < -80) handleDelete(it); }}
-                        style={{ background: H.card, border: `1px solid ${H.border}` }}
+                      <motion.div drag="x" dragConstraints={{ left: -84, right: 0 }} dragElastic={0.06} dragSnapToOrigin
+                        onDragEnd={(_, info) => { if (info.offset.x < -60) handleDelete(it); }}
+                        style={{ background: H.card, border: `1px solid ${H.border}`, position: "relative", zIndex: 1 }}
                         className="rounded-3xl overflow-hidden">
                         {/* Main row */}
                         <div className="flex gap-3 p-3">
@@ -4560,7 +4578,7 @@ function CheckoutScreen({ onBack, user }: { onBack: () => void; user?: ApiUser |
   const store = useStore();
   const nav = useNav();
   const reduce = useReducedMotion();
-  const balance = user ? user.upoints : store.points;
+  const balance = store.points;
   const subtotal = store.cartTotal;
 
   const [storeIdx, setStoreIdx] = useState(0);
@@ -4784,6 +4802,7 @@ function AppInner() {
   const [user, setUser]             = useState<ApiUser | null>(null);
   const [leaderboard, setLeaderboard] = useState<ApiUser[]>([]);
   const [loading, setLoading]       = useState(true);
+  const [guest, setGuest]           = useState(() => { try { return localStorage.getItem("tlj_guest") === "1"; } catch { return false; } });
 
   useEffect(() => {
     const uid = localStorage.getItem("tlj_user_id");
@@ -4838,7 +4857,7 @@ function AppInner() {
       style={{ width: "100%", height: "100dvh", background: H.bg, fontFamily: fontSans, overflow: "hidden", position: "relative" }}>
 
       {/* Nickname prompt for new users */}
-      {!loading && !user && <NicknameModal onConfirm={handleUserCreated} />}
+      {!loading && !user && !guest && <NicknameModal onConfirm={handleUserCreated} onSkip={() => { try { localStorage.setItem("tlj_guest", "1"); } catch { /* private mode */ } setGuest(true); }} />}
 
       {/* ── Persistent Header + Status Bar (iOS Safe Area) ── */}
       <AppHeader tab={tab} cartCount={cartCount} onNav={handleNav} />
@@ -4870,13 +4889,42 @@ function AppInner() {
   );
 }
 
-// Root: wraps the app in the persistent store + navigation stack.
+// Global error boundary — a friendly branded fallback instead of a white screen.
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: unknown) { console.error("App error:", err); }
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="flex flex-col items-center justify-center text-center px-8"
+        style={{ width: "100%", height: "100dvh", background: H.bg, fontFamily: fontSans }}>
+        <div className="size-16 rounded-2xl flex items-center justify-center mb-4"
+          style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, boxShadow: "0 8px 24px rgba(14,92,55,0.30)" }}>
+          <Coffee size={30} color="white" strokeWidth={1.6} />
+        </div>
+        <p className="text-[19px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>Өө, алдаа гарлаа</p>
+        <p className="text-[13px] mt-1 mb-6" style={{ color: H.muted }}>Түр зуурын саатал. Дахин оролдоно уу.</p>
+        <div className="flex gap-3">
+          <button onClick={() => this.setState({ hasError: false })}
+            className="px-5 py-3 rounded-full font-semibold text-[14px]" style={{ border: `1.5px solid ${H.border}`, color: H.text, fontFamily: fontDisplay }}>Дахин оролдох</button>
+          <button onClick={() => { try { window.location.reload(); } catch {} }}
+            className="px-5 py-3 rounded-full font-semibold text-[14px] text-white" style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay }}>Нүүр рүү</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+// Root: error boundary → persistent store → navigation stack.
 export default function App() {
   return (
-    <StoreProvider>
-      <NavProvider>
-        <AppInner />
-      </NavProvider>
-    </StoreProvider>
+    <ErrorBoundary>
+      <StoreProvider>
+        <NavProvider>
+          <AppInner />
+        </NavProvider>
+      </StoreProvider>
+    </ErrorBoundary>
   );
 }

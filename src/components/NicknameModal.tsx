@@ -10,13 +10,14 @@ const H = {
   text:      "#2F2F2F",
   muted:     "#6B6B5A",
   gold:      "#F6B623",
+  accent:    "#D6CFA8",
   border:    "rgba(14,92,55,0.09)",
 };
 const fontSans    = "var(--font-sans)";
 const fontDisplay = "var(--font-display)";
 const ease        = [0.23, 1, 0.32, 1] as const;
 
-export function NicknameModal({ onConfirm }: { onConfirm: (name: string) => void }) {
+export function NicknameModal({ onConfirm, onSkip }: { onConfirm: (name: string) => void; onSkip: () => void }) {
   const [name, setName] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
@@ -101,6 +102,9 @@ export function NicknameModal({ onConfirm }: { onConfirm: (name: string) => void
                   <ArrowRight size={18} color="white" strokeWidth={2.2} />
                   Эхлэх
                 </motion.button>
+                <button onClick={onSkip} className="w-full mt-3 py-2 text-[13px] font-medium" style={{ fontFamily: fontSans, color: H.muted }}>
+                  Зочноор үргэлжлүүлэх
+                </button>
               </div>
             </>
           )}
