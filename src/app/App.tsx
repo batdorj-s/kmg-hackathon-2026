@@ -50,6 +50,15 @@ const SAFE_BOTTOM = "calc(env(safe-area-inset-bottom, 0px) + 16px)"; // Home ind
 // Other system rules (implemented via Tailwind so they read the same everywhere):
 //   horizontal padding = px-5 (20px) · primary card radius = rounded-3xl (24px) · section gap = 24–32px
 
+// ─── Shadow Tokens — single elevation scale for every card and button ──
+const SHADOW_CARD  = "0 2px 8px rgba(14,92,55,0.07)";   // resting cards
+const SHADOW_FLOAT = "0 4px 16px rgba(14,92,55,0.10)";  // hover / featured
+const SHADOW_CTA   = "0 6px 20px rgba(14,92,55,0.28)";  // primary buttons
+const SHADOW_MODAL = "0 12px 32px rgba(14,92,55,0.18)"; // modals / overlays
+const SHADOW_TOP   = "0 -6px 24px rgba(14,92,55,0.08)"; // bottom bars (upward)
+
+const canHover = typeof window !== "undefined" && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
 // ─── Global App Store (localStorage-persisted client state) ────────────────────
 // Single source of truth for everything the user accumulates: points, XP, cart, favourites,
 // claimed coupons, read notifications and the daily spin. Survives reloads. The Supabase layer
@@ -437,7 +446,7 @@ function CountUp({ to, prefix = "" }: { to: number; prefix?: string }) {
 function CountDown({ to }: { to: number }) {
   const [s, setS] = useState(() => Math.max(0, Math.round((to - Date.now()) / 1000)));
   useEffect(() => {
-    const id = setInterval(() => { const r = Math.max(0, Math.round((to - Date.now()) / 1000)); setS(r); if (r <= 0) clearInterval(id); }, 500);
+    const id = setInterval(() => { const r = Math.max(0, Math.round((to - Date.now()) / 1000)); setS(r); if (r <= 0) clearInterval(id); }, 1000);
     return () => clearInterval(id);
   }, [to]);
   if (s <= 0) return null;
@@ -1149,7 +1158,7 @@ function ProductDetailSheet({
               background: H.card,
               borderTop: `1px solid ${H.border}`,
               paddingBottom: SAFE_BOTTOM,
-              boxShadow: "0 -6px 24px rgba(14,92,55,0.10)",
+              boxShadow: SHADOW_TOP,
             }}>
 
             {/* Order header — total price (live) + quantity stepper */}
@@ -1195,7 +1204,7 @@ function ProductDetailSheet({
                     ? H.primary
                     : `linear-gradient(135deg, ${H.secondary}, ${H.primary})`,
                   fontFamily: fontDisplay,
-                  boxShadow: "0 6px 20px rgba(14,92,55,0.32)",
+                  boxShadow: SHADOW_CTA,
                 }}
                 onClick={handleAdd}
                 aria-label="Сагсанд нэмэх"
@@ -1323,7 +1332,7 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
         <motion.button
           onClick={() => nav.push("qr")}
           className="w-full rounded-3xl overflow-hidden flex items-center gap-4 p-4"
-          style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 8px 28px rgba(14,92,55,0.14)" }}
+          style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_FLOAT }}
           whileTap={{ scale: 0.97 }}
           transition={{ type: "spring", stiffness: 380, damping: 24 }}>
           {/* QR mini preview */}
@@ -1384,7 +1393,7 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
           {COUPONS.filter((c) => couponStatus(c, store.usedCoupons) === "available").map((c) => (
             <motion.div key={c.id} variants={staggerItemX}
               className="flex-shrink-0 w-[192px] rounded-2xl overflow-hidden"
-              style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 2px 10px rgba(14,92,55,0.07)" }}
+              style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_CARD }}
               whileTap={{ scale: 0.96 }}
               transition={{ type: "spring", stiffness: 380, damping: 24 }}>
               <div className="h-1.5 w-full" style={{ background: c.color }} />
@@ -1478,8 +1487,8 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
           {PRODUCTS.slice(0, 5).map((p) => (
             <motion.div key={p.id} variants={staggerItemX}
               className="flex-shrink-0 w-[128px] rounded-2xl overflow-hidden cursor-pointer"
-              style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 2px 10px rgba(14,92,55,0.07)" }}
-              whileHover={{ y: -3, boxShadow: "0 8px 20px rgba(14,92,55,0.14)" }}
+              style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_CARD }}
+              whileHover={canHover ? { y: -3, boxShadow: SHADOW_FLOAT } : {}}
               whileTap={{ scale: 0.96 }}
               transition={{ type: "spring", stiffness: 360, damping: 22 }}
               onClick={() => setSelectedProduct(p)}>
@@ -1513,8 +1522,8 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
       <motion.div className="px-5 mb-8" variants={fadeUp} initial="hidden" animate="show">
         <motion.button onClick={() => onNav("game")}
           className="w-full rounded-3xl p-4 flex items-center gap-4"
-          style={{ background: `linear-gradient(135deg, ${H.secondary} 0%, ${H.primary} 100%)`, boxShadow: "0 6px 24px rgba(14,92,55,0.28)" }}
-          whileHover={{ scale: 1.02, boxShadow: "0 10px 32px rgba(14,92,55,0.36)" }}
+          style={{ background: `linear-gradient(135deg, ${H.secondary} 0%, ${H.primary} 100%)`, boxShadow: SHADOW_CTA }}
+          whileHover={canHover ? { scale: 1.02, boxShadow: "0 10px 32px rgba(14,92,55,0.36)" } : {}}
           whileTap={{ scale: 0.97 }}
           transition={{ type: "spring", stiffness: 340, damping: 22 }}>
           <motion.div className="size-12 rounded-2xl flex items-center justify-center flex-shrink-0"
@@ -2042,7 +2051,7 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
           <div className="flex-shrink-0 px-5" style={{ paddingBottom: SAFE_BOTTOM }}>
             <motion.button onClick={bake}
               className="w-full h-14 rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white"
-              style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.32)" }}
+              style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA }}
               whileTap={{ scale: 0.97 }}>
               <Sparkles size={18} color={H.gold} fill={H.gold} />
               Магик зуух · Гурил нэм
@@ -2230,7 +2239,7 @@ function QuizGame({ open, onClose, onScore }: { open: boolean; onClose: () => vo
               </div>
               <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-3">
                 <motion.div className="size-20 rounded-3xl flex items-center justify-center mb-1"
-                  style={{ background: `linear-gradient(145deg, ${H.secondary}, ${H.primary})`, boxShadow: "0 12px 30px rgba(14,92,55,0.30)" }}
+                  style={{ background: `linear-gradient(145deg, ${H.secondary}, ${H.primary})`, boxShadow: SHADOW_MODAL }}
                   initial={{ scale: reduce ? 1 : 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}>
                   <Brain size={38} color="white" strokeWidth={1.8} />
@@ -2257,7 +2266,7 @@ function QuizGame({ open, onClose, onScore }: { open: boolean; onClose: () => vo
               <div className="px-5" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}>
                 <motion.button onClick={start} whileTap={{ scale: 0.97 }}
                   className="w-full h-14 rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white"
-                  style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.32)" }}>
+                  style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA }}>
                   <Brain size={18} color="white" /> Эхлэх
                 </motion.button>
               </div>
@@ -2401,7 +2410,7 @@ function QuizGame({ open, onClose, onScore }: { open: boolean; onClose: () => vo
               <div className="w-full flex flex-col gap-3">
                 <motion.button onClick={start} whileTap={{ scale: 0.97 }}
                   className="w-full h-13 rounded-full flex items-center justify-center gap-2 font-bold text-[15px] text-white"
-                  style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.30)", height: 52 }}>
+                  style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA, height: 52 }}>
                   <RotateCcw size={17} color="white" /> Дахин тоглох
                 </motion.button>
                 <div className="flex gap-3">
@@ -2589,7 +2598,7 @@ function ConnectionsGame({ open, onClose, onScore }: { open: boolean; onClose: (
             style={{
               height: 52,
               background: sel.length === 4 ? `linear-gradient(135deg, ${H.secondary}, ${H.primary})` : H.accent,
-              fontFamily: fontDisplay, boxShadow: sel.length === 4 ? "0 6px 20px rgba(14,92,55,0.32)" : "none",
+              fontFamily: fontDisplay, boxShadow: sel.length === 4 ? SHADOW_CTA : "none",
             }}
             whileTap={sel.length === 4 ? { scale: 0.97 } : {}}>
             Шалгах ({sel.length}/4)
@@ -2730,7 +2739,7 @@ function GameScreen({ user, leaderboard, onGameOver }: {
       <motion.div className="px-5 -mt-3 mb-5"
         initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.46, delay: 0.12, ease }}>
         <div className="rounded-3xl p-5 flex flex-col items-center"
-          style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 4px 24px rgba(14,92,55,0.10)" }}>
+          style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_FLOAT }}>
           <div className="flex items-center justify-between w-full mb-4">
             <div>
               <h3 className="text-[15px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>Хүрд эргүүлэх</h3>
@@ -2788,8 +2797,8 @@ function GameScreen({ user, leaderboard, onGameOver }: {
 
           <motion.button onClick={spinWheel} disabled={wheelSpin || wheelSpins === 0}
             className="w-full py-3.5 rounded-2xl font-bold text-[14px] text-white"
-            style={{ background: wheelSpin || wheelSpins === 0 ? H.muted : `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: wheelSpin || wheelSpins === 0 ? "none" : "0 4px 16px rgba(14,92,55,0.32)" }}
-            whileTap={{ scale: 0.96 }} whileHover={!wheelSpin && wheelSpins > 0 ? { scale: 1.02 } : {}}>
+            style={{ background: wheelSpin || wheelSpins === 0 ? H.muted : `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: wheelSpin || wheelSpins === 0 ? "none" : SHADOW_CTA }}
+            whileTap={{ scale: 0.96 }} whileHover={canHover && !wheelSpin && wheelSpins > 0 ? { scale: 1.02 } : {}}>
             {wheelSpin ? "Эргэж байна…" : wheelSpins === 0 ? "Эрх дууссан" : "Хүрд эргүүлэх"}
           </motion.button>
         </div>
@@ -2837,7 +2846,7 @@ function GameScreen({ user, leaderboard, onGameOver }: {
               variants={staggerItem}
               className="rounded-2xl p-4 text-left flex flex-col gap-2.5"
               style={{ background: g.color, border: `1px solid ${H.border}` }}
-              whileHover={{ y: -4, boxShadow: "0 8px 24px rgba(14,92,55,0.14)" }}
+              whileHover={canHover ? { y: -4, boxShadow: SHADOW_FLOAT } : {}}
               whileTap={{ scale: 0.95 }}
               transition={{ type: "spring", stiffness: 360, damping: 22 }}>
               <div className="flex items-start justify-between">
@@ -3116,8 +3125,8 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
                 return (
                   <motion.div key={p.id} variants={staggerItem}
                     className="rounded-3xl overflow-hidden"
-                    style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 2px 12px rgba(14,92,55,0.07)" }}
-                    whileHover={{ y: -4, boxShadow: "0 10px 28px rgba(14,92,55,0.14)" }}
+                    style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_CARD }}
+                    whileHover={canHover ? { y: -4, boxShadow: SHADOW_FLOAT } : {}}
                     whileTap={{ scale: 0.97 }}
                     transition={{ type: "spring", stiffness: 360, damping: 22 }}>
                     <div className="relative w-full" style={{ paddingTop: "66%" }}>
@@ -3231,7 +3240,7 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
       {/* Tier */}
       <motion.div className="px-5 -mt-2 mb-5"
         initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.40, delay: 0.22, ease }}>
-        <div className="rounded-3xl p-4" style={{ background: H.card, boxShadow: "0 4px 20px rgba(14,92,55,0.10)", border: `1px solid ${H.border}` }}>
+        <div className="rounded-3xl p-4" style={{ background: H.card, boxShadow: SHADOW_FLOAT, border: `1px solid ${H.border}` }}>
           <motion.div className="flex justify-between mb-3" variants={staggerContainer} initial="hidden" animate="show">
             {tiers.map((t) => {
               const isCur = t.label === current.label;
@@ -3315,7 +3324,7 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
               <motion.button key={c.id} variants={staggerItem} onClick={() => nav.push("couponDetail", c)}
                 className="w-full text-left flex rounded-2xl overflow-hidden"
                 style={{ background: H.card, border: `1px solid ${H.border}`, opacity: inactive ? 0.55 : 1 }}
-                whileHover={!inactive ? { x: 3 } : {}} whileTap={{ scale: 0.98 }}
+                whileHover={canHover && !inactive ? { x: 3 } : {}} whileTap={{ scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}>
                 <div className="w-1.5 flex-shrink-0" style={{ background: c.color }} />
                 <div className="flex-1 flex items-center gap-3 px-4 py-3.5">
@@ -3327,8 +3336,8 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
                     <p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>{c.sub}</p>
                     <div className="flex items-center gap-1 mt-1"><Clock size={10} color={H.muted} /><span className="text-[10px]" style={{ color: H.muted, fontFamily: fontSans }}>{c.expiry} хүртэл</span></div>
                   </div>
-                  {st === "used"    ? <span className="text-[10px] font-bold px-2 py-1 rounded-lg flex-shrink-0" style={{ background: H.bg, color: H.muted, fontFamily: fontSans }}>Ашигласан</span>
-                   : st === "expired" ? <span className="text-[10px] font-bold px-2 py-1 rounded-lg flex-shrink-0" style={{ background: "rgba(233,77,114,0.10)", color: H.pink, fontFamily: fontSans }}>Дууссан</span>
+                  {st === "used"    ? <span className="text-[10px] font-bold px-2 py-1 rounded-xl flex-shrink-0" style={{ background: H.bg, color: H.muted, fontFamily: fontSans }}>Ашигласан</span>
+                   : st === "expired" ? <span className="text-[10px] font-bold px-2 py-1 rounded-xl flex-shrink-0" style={{ background: "rgba(233,77,114,0.10)", color: H.pink, fontFamily: fontSans }}>Дууссан</span>
                    : <ChevronRight size={16} color={H.accent} />}
                 </div>
               </motion.button>
@@ -3389,8 +3398,8 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
           {[{ Icon: Wallet, label: "Apple Wallet" }, { Icon: CreditCard, label: "Google Wallet" }].map((w) => (
             <motion.button key={w.label} variants={staggerItem}
               className="rounded-2xl p-4 flex items-center gap-3"
-              style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 2px 8px rgba(14,92,55,0.06)" }}
-              whileHover={{ y: -3, boxShadow: "0 8px 20px rgba(14,92,55,0.12)" }}
+              style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_CARD }}
+              whileHover={canHover ? { y: -3, boxShadow: SHADOW_FLOAT } : {}}
               whileTap={{ scale: 0.95 }}
               transition={{ type: "spring", stiffness: 360, damping: 22 }}>
               <div className="size-9 rounded-xl flex items-center justify-center" style={{ background: "rgba(14,92,55,0.07)" }}>
@@ -3476,7 +3485,7 @@ function ProfileScreen({ user }: { user?: User | null }) {
             <motion.button key={i} variants={scaleIn} onClick={() => nav.push("achievement", a)}
               className="flex flex-col items-center gap-1.5 rounded-2xl py-3"
               style={{ background: a.done ? "rgba(14,92,55,0.07)" : H.card, border: `1px solid ${a.done ? "rgba(14,92,55,0.12)" : H.border}` }}
-              whileHover={a.done ? { scale: 1.04 } : {}}
+              whileHover={canHover && a.done ? { scale: 1.04 } : {}}
               whileTap={{ scale: 0.95 }}
               transition={{ type: "spring", stiffness: 400, damping: 22 }}>
               <div className="relative size-9 rounded-full flex items-center justify-center"
@@ -3504,7 +3513,7 @@ function ProfileScreen({ user }: { user?: User | null }) {
               className="flex items-center gap-3 w-full px-4 py-3.5 text-left"
               style={{ borderBottom: i < MENU_ITEMS.length - 1 ? `1px solid ${H.border}` : "none" }}
               onClick={() => menuNav(item.label)}
-              whileHover={{ x: 3 }}
+              whileHover={canHover ? { x: 3 } : {}}
               whileTap={{ scale: 0.98 }}
               transition={{ type: "spring", stiffness: 500, damping: 30 }}>
               <div className="size-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(14,92,55,0.07)" }}>
@@ -3527,7 +3536,7 @@ function ProfileScreen({ user }: { user?: User | null }) {
         <motion.button className="mt-4 mb-2 w-full py-4 rounded-2xl font-semibold text-[14px]"
           style={{ border: `1.5px solid rgba(14,92,55,0.20)`, color: H.primary, fontFamily: fontDisplay }}
           onClick={() => nav.push("settings")}
-          whileHover={{ opacity: 0.85 }}
+          whileHover={canHover ? { opacity: 0.85 } : {}}
           whileTap={{ scale: 0.97 }}>
           Гарах
         </motion.button>
@@ -3609,7 +3618,7 @@ function FullQRScreen({ onBack, user }: { onBack: () => void; user?: ApiUser | n
   return (
     <ScreenShell title="Гишүүнчлэлийн карт" subtitle="QR уншуулах" onBack={onBack}>
       <motion.div className="rounded-3xl p-6 flex flex-col items-center"
-        style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 8px 30px rgba(14,92,55,0.10)" }}
+        style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_FLOAT }}
         initial={{ opacity: 0, y: 16, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", stiffness: 300, damping: 24 }}>
         <div className="flex items-center gap-1.5 mb-4">
           <Medal size={14} color={H.gold} fill={H.gold} />
@@ -3717,7 +3726,7 @@ function CouponWalletScreen({ onBack }: { onBack: () => void }) {
                       <div className="flex items-center gap-1 mt-1"><Clock size={10} color={H.muted} /><span className="text-[10px]" style={{ color: H.muted, fontFamily: fontSans }}>{c.expiry} хүртэл</span></div>
                     </div>
                     {st === "available" ? <ChevronRight size={16} color={H.accent} />
-                     : <span className="text-[10px] font-bold px-2 py-1 rounded-lg flex-shrink-0" style={{ background: H.bg, color: H.muted, fontFamily: fontSans }}>{st === "used" ? "Ашигласан" : "Дууссан"}</span>}
+                     : <span className="text-[10px] font-bold px-2 py-1 rounded-xl flex-shrink-0" style={{ background: H.bg, color: H.muted, fontFamily: fontSans }}>{st === "used" ? "Ашигласан" : "Дууссан"}</span>}
                   </div>
                 </motion.button>
               );
@@ -3759,7 +3768,7 @@ function CouponDetailScreen({ onBack, coupon }: { onBack: () => void; coupon: Co
       </div>
       {st === "available" && !done ? (
         <motion.button onClick={use} whileTap={{ scale: 0.97 }} className="w-full rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white"
-          style={{ height: 52, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.30)" }}>
+          style={{ height: 52, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA }}>
           <Ticket size={18} color="white" /> Ашиглах
         </motion.button>
       ) : (
@@ -3794,7 +3803,7 @@ function OrdersScreen({ onBack }: { onBack: () => void }) {
         <motion.div className="space-y-3" variants={listStagger} initial="hidden" animate="show">
           {list.map((o) => (
             <motion.button key={o.id} variants={staggerItem} onClick={() => nav.push("order", o)} whileTap={{ scale: 0.98 }}
-              className="w-full text-left rounded-2xl p-4" style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: "0 2px 10px rgba(14,92,55,0.06)" }}>
+              className="w-full text-left rounded-2xl p-4" style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_CARD }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[13px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>{o.id}</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: (o.statusIdx === 4 ? H.primary : H.gold) + "18", color: o.statusIdx === 4 ? H.primary : H.gold, fontFamily: fontSans }}>{ORDER_STEPS[o.statusIdx]}</span>
@@ -3878,7 +3887,7 @@ function OrderDetailScreen({ onBack, order }: { onBack: () => void; order: Order
         </div>
       </div>
       <motion.button onClick={repeat} whileTap={{ scale: 0.97 }} className="w-full rounded-full flex items-center justify-center gap-2 font-bold text-[15px] text-white"
-        style={{ height: 52, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.30)" }}>
+        style={{ height: 52, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA }}>
         <RotateCcw size={17} color="white" /> Дахин захиалах
       </motion.button>
     </ScreenShell>
@@ -4275,7 +4284,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                               whileTap={{ scale: 0.88 }}
                               className="size-8 rounded-full flex items-center justify-center"
                               style={{ background: H.card, border: `1px solid ${H.border}` }}
-                              whileHover={{ scale: 1.05 }}>
+                              whileHover={canHover ? { scale: 1.05 } : {}}>
                               <Minus size={14} color={H.text} strokeWidth={2.5} />
                             </motion.button>
                             <motion.span key={it.qty}
@@ -4291,7 +4300,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                               whileTap={{ scale: 0.88 }}
                               className="size-8 rounded-full flex items-center justify-center"
                               style={{ background: H.primary }}
-                              whileHover={{ scale: 1.05 }}>
+                              whileHover={canHover ? { scale: 1.05 } : {}}>
                               <Plus size={14} color="white" strokeWidth={2.5} />
                             </motion.button>
                           </div>
@@ -4357,7 +4366,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                         </motion.div>
                       ) : (
                         <motion.div className="px-3 py-1.5 rounded-full text-[11px] font-semibold" style={{ background: H.primary + "12", color: H.primary, fontFamily: fontSans }}
-                          whileHover={{ scale: 1.05 }}>
+                          whileHover={canHover ? { scale: 1.05 } : {}}>
                           Ашиглах
                         </motion.div>
                       )}
@@ -4366,7 +4375,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                   {discount > 0 && (
                     <motion.div className="flex items-center justify-between px-4 py-2.5"
                       style={{ borderTop: `1px solid ${H.border}`, background: "rgba(14,92,55,0.03)" }}
-                      initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}>
+                      initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ ease, duration: 0.28 }}>
                       <span className="text-[12px]" style={{ fontFamily: fontSans, color: H.muted }}>Хэмнэлт</span>
                       <span className="text-[13px] font-bold" style={{ fontFamily: fontDisplay, color: H.pink, fontVariantNumeric: "tabular-nums" }}>−{fmt(discount)}</span>
                     </motion.div>
@@ -4398,7 +4407,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                   </div>
                   {usePoints && (
                     <motion.div className="space-y-1.5 px-4 pb-3.5"
-                      initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}>
+                      initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ ease, duration: 0.28 }}>
                       <div className="flex justify-between text-[12px]" style={{ fontFamily: fontSans, color: H.muted }}>
                         <span>Ашигласан оноо</span>
                         <span style={{ fontVariantNumeric: "tabular-nums" }}>−{fmt(pointsUsed)}</span>
@@ -4471,7 +4480,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                       className="flex-shrink-0 w-[130px] rounded-2xl overflow-hidden text-left"
                       style={{ background: H.card, border: `1px solid ${H.border}` }}
                       whileTap={{ scale: 0.96 }}
-                      whileHover={{ y: -2 }}
+                      whileHover={canHover ? { y: -2 } : {}}
                       aria-label={`${p.name} нэмэх`}>
                        <div className="h-[100px] relative overflow-hidden"><CoverImg src={p.img} alt={p.name} /></div>
                       <div className="p-2.5">
@@ -4492,17 +4501,17 @@ function CartScreen({ onBack }: { onBack: () => void }) {
             background: H.card,
             borderTop: `1px solid ${H.border}`,
             paddingBottom: `calc(${SAFE_BOTTOM} + 4px)`,
-            boxShadow: "0 -6px 24px rgba(14,92,55,0.08)"
+            boxShadow: SHADOW_TOP,
           }}>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <span className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>НИЙТ ДҮН</span>
-                <p className="text-[24px] font-bold" style={{ fontFamily: fontDisplay, color: H.primary, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</p>
-              </div>
-              <motion.button onClick={() => nav.push("checkout")}
-                whileTap={{ scale: 0.97 }}
-                className="rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white"
-                style={{ height: 54, paddingLeft: 28, paddingRight: 28, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.32)" }}>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <span className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>НИЙТ ДҮН</span>
+            <p className="text-[24px] font-bold" style={{ fontFamily: fontDisplay, color: H.primary, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</p>
+          </div>
+          <motion.button onClick={() => nav.push("checkout")}
+            whileTap={{ scale: 0.97 }}
+            className="rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white"
+            style={{ height: 54, paddingLeft: 28, paddingRight: 28, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA }}>
                 Захиалах <ArrowRight size={18} color="white" />
               </motion.button>
             </div>
@@ -4513,7 +4522,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
       <AnimatePresence>
         {deletedItem && (
           <motion.div className="fixed left-0 right-0 z-50 flex items-center justify-between px-5 py-3"
-            style={{ bottom: 0, paddingBottom: `calc(${SAFE_BOTTOM} + 40px)`, background: H.text, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
+            style={{ bottom: `calc(80px + ${SAFE_BOTTOM})`, paddingBottom: 0, background: H.text, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
             initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}>
             <span className="text-[13px] text-white" style={{ fontFamily: fontSans }}>Бүтээгдэхүүн устгагдсан</span>
@@ -4607,7 +4616,7 @@ function CheckoutScreen({ onBack, user }: { onBack: () => void; user?: ApiUser |
           const on = couponId === c.id;
           return (
             <button key={c.id} onClick={() => setCouponId(on ? null : c.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left" style={{ borderBottom: i < eligible.length - 1 ? `1px solid ${H.border}` : "none" }}>
-              <div className="size-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: c.color + "18" }}><Ticket size={15} color={c.color} /></div>
+              <div className="size-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: c.color + "18" }}><Ticket size={15} color={c.color} /></div>
               <div className="flex-1 min-w-0"><p className="text-[13px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>{c.title}</p><p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>−{fmt(couponDiscount(c, subtotal))}</p></div>
               <div className="size-5 rounded-full flex items-center justify-center" style={{ border: `2px solid ${on ? H.primary : H.accent}` }}>{on && <CheckCircle size={16} color={H.primary} strokeWidth={2.4} />}</div>
             </button>
@@ -4617,7 +4626,7 @@ function CheckoutScreen({ onBack, user }: { onBack: () => void; user?: ApiUser |
 
       <Section title="Оноо">
         <div className="flex items-center gap-3 px-4 py-3.5">
-          <div className="size-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(246,182,35,0.15)" }}><Star size={16} color={H.gold} fill={H.gold} /></div>
+          <div className="size-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(246,182,35,0.15)" }}><Star size={16} color={H.gold} fill={H.gold} /></div>
           <div className="flex-1"><p className="text-[13px] font-medium" style={{ fontFamily: fontSans, color: H.text }}>Оноо ашиглах</p><p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>Үлдэгдэл: {balance.toLocaleString()} · 1 оноо = ₮1</p></div>
           <motion.button aria-label="Оноо ашиглах" onClick={() => setUsePoints((v) => !v)} disabled={balance === 0 || afterCoupon === 0} className="w-11 h-6 rounded-full flex items-center px-0.5" style={{ background: usePoints ? H.primary : H.accent, opacity: balance === 0 ? 0.5 : 1 }} whileTap={{ scale: 0.94 }}>
             <motion.div className="size-5 rounded-full bg-white" animate={{ x: usePoints ? 20 : 0 }} transition={{ type: "spring", stiffness: 500, damping: 30 }} />
@@ -4634,7 +4643,7 @@ function CheckoutScreen({ onBack, user }: { onBack: () => void; user?: ApiUser |
           const on = pay === m.id;
           return (
             <button key={m.id} onClick={() => setPay(m.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left" style={{ borderBottom: i < PAY_METHODS.length - 1 ? `1px solid ${H.border}` : "none" }}>
-              <div className="size-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: m.tint + "1A" }}><m.Icon size={16} color={m.tint} strokeWidth={1.9} /></div>
+              <div className="size-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: m.tint + "1A" }}><m.Icon size={16} color={m.tint} strokeWidth={1.9} /></div>
               <span className="flex-1 text-[13px] font-medium" style={{ fontFamily: fontSans, color: H.text }}>{m.label}</span>
               <div className="size-5 rounded-full flex items-center justify-center" style={{ border: `2px solid ${on ? H.primary : H.accent}` }}>{on && <div className="size-2.5 rounded-full" style={{ background: H.primary }} />}</div>
             </button>
@@ -4655,7 +4664,7 @@ function CheckoutScreen({ onBack, user }: { onBack: () => void; user?: ApiUser |
       </div>
 
       <motion.button onClick={submit} disabled={phase === "processing"} whileTap={phase === "idle" ? { scale: 0.97 } : {}}
-        className="w-full rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white mb-2" style={{ height: 54, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.32)", opacity: phase === "processing" ? 0.85 : 1 }}>
+        className="w-full rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white mb-2" style={{ height: 54, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA, opacity: phase === "processing" ? 0.85 : 1 }}>
         {phase === "processing" ? <><motion.span className="size-4 rounded-full border-2 border-white border-t-transparent" animate={reduce ? {} : { rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7, ease: "linear" }} /> Төлж байна…</> : <>{fmt(total)} төлөх</>}
       </motion.button>
 
@@ -4684,7 +4693,7 @@ function SuccessScreen({ onBack, order, earned }: { onBack: () => void; order: P
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: H.bg, paddingTop: SAFE_TOP, paddingBottom: `calc(${SAFE_BOTTOM} + 8px)` }}>
       <div className="flex-1 overflow-y-auto px-6 flex flex-col items-center justify-center text-center" style={{ scrollbarWidth: "none" }}>
-        <motion.div className="size-24 rounded-full flex items-center justify-center mb-4" style={{ background: `linear-gradient(145deg, #1A7A45, ${H.secondary})`, boxShadow: "0 16px 40px rgba(14,92,55,0.35)" }}
+        <motion.div className="size-24 rounded-full flex items-center justify-center mb-4" style={{ background: `linear-gradient(145deg, #1A7A45, ${H.secondary})`, boxShadow: SHADOW_MODAL }}
           initial={{ scale: reduce ? 1 : 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 300, damping: 18 }}>
           <CheckCircle size={52} color="white" strokeWidth={2} />
         </motion.div>
@@ -4704,7 +4713,7 @@ function SuccessScreen({ onBack, order, earned }: { onBack: () => void; order: P
       </div>
       <div className="px-6 pt-3 flex flex-col gap-3">
         <motion.button onClick={() => { nav.pop(); nav.push("order", toOrderView(order)); }} whileTap={{ scale: 0.97 }}
-          className="w-full rounded-full flex items-center justify-center gap-2 font-bold text-[15px] text-white" style={{ height: 52, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.30)" }}>
+          className="w-full rounded-full flex items-center justify-center gap-2 font-bold text-[15px] text-white" style={{ height: 52, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: SHADOW_CTA }}>
           <Truck size={17} color="white" /> Захиалга хянах
         </motion.button>
         <div className="flex gap-3">
