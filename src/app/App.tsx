@@ -60,13 +60,16 @@ type CartItem = { pid: number; qty: number; temp?: "hot" | "cool" };
 type PlacedOrder = {
   id: string; date: string; items: CartItem[];
   subtotal: number; discount: number; pointsUsed: number; total: number; earned: number;
-  store: string; pickup: string; payment: string; coupon: number | null; status: number;  // status 0..4
+  store: string; pickup: string; payment: string; coupon: number | null; status: number; placedAt: number;  // status 0..4, unix ms
 };
 type OrderInput = { subtotal: number; discount: number; pointsUsed: number; total: number; store: string; pickup: string; payment: string; coupon: number | null };
+type OrderNotif = { id: number; title: string; body: string; timestamp: number; orderId: string };
 type StoreState = {
   points: number; xp: number; cart: CartItem[]; orders: PlacedOrder[];
   favorites: number[]; usedCoupons: number[]; redeemed: number[]; notifRead: number[];
   spinDate: string | null; spinsUsed: number;
+  orderNotifs: OrderNotif[]; nextNotifId: number;
+  savedItems: CartItem[];
 };
 const STORE_KEY = "tlj-store-v3";   // bumped: cart is now line items + placed orders
 const SPINS_PER_DAY = 3;
@@ -76,6 +79,8 @@ const DEFAULT_STORE: StoreState = {
   points: 2840, xp: 1240, cart: [], orders: [],
   favorites: [], usedCoupons: [3], redeemed: [], notifRead: [3, 4],
   spinDate: null, spinsUsed: 0,
+  orderNotifs: [], nextNotifId: 5,
+  savedItems: [],
 };
 const loadStore = (): StoreState => {
   try {
@@ -84,6 +89,7 @@ const loadStore = (): StoreState => {
     // Recover gracefully from corrupt / older-shape persisted data.
     if (!Array.isArray(merged.cart))   merged.cart = [];
     if (!Array.isArray(merged.orders)) merged.orders = [];
+    if (!Array.isArray(merged.savedItems)) merged.savedItems = [];
     return merged;
   } catch { return DEFAULT_STORE; }
 };
@@ -100,6 +106,9 @@ type StoreApi = StoreState & {
   setQty: (pid: number, qty: number) => void;
   removeItem: (pid: number) => void;
   clearCart: () => void;
+  saveForLater: (pid: number) => void;
+  moveToCart: (pid: number) => void;
+  removeSaved: (pid: number) => void;
   placeOrder: (o: OrderInput) => PlacedOrder;            // atomically: order + rewards + points + coupon
   advanceOrder: (id: string) => void;                    // progress the status tracker
   toggleFav: (id: number) => void;
@@ -119,6 +128,42 @@ function StoreProvider({ children }: { children: React.ReactNode }) {
   const [s, setS] = useState<StoreState>(loadStore);
   useEffect(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch { /* quota / private mode */ } }, [s]);
 
+  // Auto-advance order statuses + generate notifications.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setS((p) => {
+        const now = Date.now();
+        let changed = false;
+        let notifs = p.orderNotifs;
+        let nid = p.nextNotifId;
+        const orders = p.orders.map((o) => {
+          if (o.status >= 4) return o;
+          let cumulative = 0;
+          for (let i = 0; i < ORDER_STEP_DURATIONS.length && i <= o.status; i++) cumulative += ORDER_STEP_DURATIONS[i];
+          if (now - o.placedAt >= cumulative) {
+            changed = true;
+            const target = Math.min(4, o.status + 1);
+            const msgs: Record<number, { title: string; body: string }> = {
+              1: { title: "Захиалга бэлтгэгдэж эхэллээ", body: `#${o.id}` },
+              2: { title: "Захиалга жигнэгдэж байна", body: `#${o.id}` },
+              3: { title: "Чаналр шалгалтанд орлоо", body: `#${o.id}` },
+              4: { title: "Захиалга авахад бэлэн!", body: `#${o.id} · Авахаар ирээрэй` },
+            };
+            const msg = msgs[target];
+            if (msg) {
+              notifs = [...notifs, { id: nid, title: msg.title, body: msg.body, timestamp: now, orderId: o.id }];
+              nid++;
+            }
+            return { ...o, status: target };
+          }
+          return o;
+        });
+        return changed ? { ...p, orders, orderNotifs: notifs, nextNotifId: nid } : p;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const fresh   = s.spinDate === todayStr() ? s.spinsUsed : 0;   // reset spins each calendar day
   const spinsLeft = Math.max(0, SPINS_PER_DAY - fresh);
 
@@ -133,21 +178,52 @@ function StoreProvider({ children }: { children: React.ReactNode }) {
     setQty:     (pid, qty) => setS((p) => ({ ...p, cart: qty <= 0 ? p.cart.filter((c) => c.pid !== pid) : p.cart.map((c) => (c.pid === pid ? { ...c, qty } : c)) })),
     removeItem: (pid) => setS((p) => ({ ...p, cart: p.cart.filter((c) => c.pid !== pid) })),
     clearCart:  () => setS((p) => ({ ...p, cart: [] })),
+    saveForLater: (pid) => setS((p) => {
+      const item = p.cart.find((c) => c.pid === pid);
+      if (!item) return p;
+      return { ...p, cart: p.cart.filter((c) => c.pid !== pid), savedItems: [...p.savedItems.filter((s) => s.pid !== pid), item] };
+    }),
+    moveToCart: (pid) => setS((p) => {
+      const item = p.savedItems.find((s) => s.pid === pid);
+      if (!item) return p;
+      return { ...p, savedItems: p.savedItems.filter((s) => s.pid !== pid), cart: [...p.cart, item] };
+    }),
+    removeSaved: (pid) => setS((p) => ({ ...p, savedItems: p.savedItems.filter((s) => s.pid !== pid) })),
     placeOrder: (o) => {
       const id = "TLJ-" + (10500 + s.orders.length + 1);
       const earned = earnedFor(o.total);
-      const order: PlacedOrder = { id, date: todayStr().replace(/-/g, "."), items: s.cart, ...o, earned, status: 0 };
-      setS((p) => ({
-        ...p,
-        orders: [order, ...p.orders],           // write order history
-        cart: [],                               // empty the cart
-        points: Math.max(0, p.points - o.pointsUsed) + earned,  // deduct used, add earned (never negative)
-        xp: p.xp + 20,                          // reward integration: XP per purchase
-        usedCoupons: o.coupon && !p.usedCoupons.includes(o.coupon) ? [...p.usedCoupons, o.coupon] : p.usedCoupons,
-      }));
+      const order: PlacedOrder = { id, date: todayStr().replace(/-/g, "."), items: s.cart, ...o, earned, status: 0, placedAt: Date.now() };
+      setS((p) => {
+        const notif: OrderNotif = { id: p.nextNotifId, title: "Захиалга баталгаажлаа", body: `#${id} · ${o.store}`, timestamp: Date.now(), orderId: id };
+        return {
+          ...p,
+          orders: [order, ...p.orders],
+          cart: [],
+          points: Math.max(0, p.points - o.pointsUsed) + earned,
+          xp: p.xp + 20,
+          usedCoupons: o.coupon && !p.usedCoupons.includes(o.coupon) ? [...p.usedCoupons, o.coupon] : p.usedCoupons,
+          orderNotifs: [notif, ...p.orderNotifs],
+          nextNotifId: p.nextNotifId + 1,
+        };
+      });
       return order;
     },
-    advanceOrder: (id) => setS((p) => ({ ...p, orders: p.orders.map((o) => (o.id === id ? { ...o, status: Math.min(4, o.status + 1) } : o)) })),
+    advanceOrder: (id) => setS((p) => {
+      const target = Math.min(4, (p.orders.find((o) => o.id === id)?.status ?? 0) + 1);
+      const msgs: Record<number, { title: string; body: string }> = {
+        1: { title: "Захиалга бэлтгэгдэж эхэллээ", body: `#${id}` },
+        2: { title: "Захиалга жигнэгдэж байна", body: `#${id}` },
+        3: { title: "Чаналр шалгалтанд орлоо", body: `#${id}` },
+        4: { title: "Захиалга авахад бэлэн!", body: `#${id} · Авахаар ирээрэй` },
+      };
+      const msg = msgs[target];
+      const notif = msg ? { id: p.nextNotifId, title: msg.title, body: msg.body, timestamp: Date.now(), orderId: id } : null;
+      return {
+        ...p,
+        orders: p.orders.map((o) => (o.id === id ? { ...o, status: target } : o)),
+        ...(notif ? { orderNotifs: [notif, ...p.orderNotifs], nextNotifId: p.nextNotifId + 1 } : {}),
+      };
+    }),
     toggleFav:  (id) => setS((p) => ({ ...p, favorites: p.favorites.includes(id) ? p.favorites.filter((x) => x !== id) : [...p.favorites, id] })),
     useCoupon:  (id) => setS((p) => (p.usedCoupons.includes(id) ? p : { ...p, usedCoupons: [...p.usedCoupons, id] })),
     redeemReward: (id, cost) => {                         // synchronous check → reliable return value
@@ -357,6 +433,17 @@ function CountUp({ to, prefix = "" }: { to: number; prefix?: string }) {
   return <motion.span>{val}</motion.span>;
 }
 
+/** Countdown seconds to a future timestamp */
+function CountDown({ to }: { to: number }) {
+  const [s, setS] = useState(() => Math.max(0, Math.round((to - Date.now()) / 1000)));
+  useEffect(() => {
+    const id = setInterval(() => { const r = Math.max(0, Math.round((to - Date.now()) / 1000)); setS(r); if (r <= 0) clearInterval(id); }, 500);
+    return () => clearInterval(id);
+  }, [to]);
+  if (s <= 0) return null;
+  return <span className="text-[10px]" style={{ fontFamily: fontSans, color: H.muted }}>{s} сек үлдлээ</span>;
+}
+
 /** Animated progress bar */
 function ProgressBar({ pct, color, delay = 0.3 }: { pct: number; color: string; delay?: number }) {
   return (
@@ -397,12 +484,37 @@ const NOTIFICATIONS = [
   { id: 4, title: "United Mall салбар нээлээ",  body: "Шинэ байршил · Улаанбаатар",       time: "1 өдөр",  read: true,  Icon: Store    },
 ];
 
+const relativeTime = (ts: number) => {
+  const diff = Date.now() - ts;
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "хэдхэн";
+  if (min < 60) return `${min} мин`;
+  const hr = Math.round(min / 60);
+  return `${hr} цаг`;
+};
+
 function NotificationBtn() {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
   const store  = useStore();
+  const nav = useNav();
   const isRead = (n: { id: number }) => store.notifRead.includes(n.id);
-  const unread = NOTIFICATIONS.filter((n) => !isRead(n)).length;
+  const allNotifs = [
+    ...NOTIFICATIONS,
+    ...store.orderNotifs.map((n) => ({ ...n, Icon: Package, time: relativeTime(n.timestamp) })),
+  ].sort((a, b) => {
+    const ta = "timestamp" in a ? (a as any).timestamp : 0;
+    const tb = "timestamp" in b ? (b as any).timestamp : 0;
+    return tb - ta;
+  });
+  const unread = allNotifs.filter((n) => !isRead(n)).length;
+
+  const handleTap = (n: typeof allNotifs[number]) => {
+    if ("orderId" in n && n.orderId) {
+      setOpen(false);
+      setTimeout(() => nav.push("order", n.orderId), 100);
+    }
+  };
 
   return (
     <>
@@ -454,7 +566,7 @@ function NotificationBtn() {
                 <motion.button
                   className="text-[12px] font-medium px-3 py-1.5 rounded-xl"
                   style={{ background: "rgba(14,92,55,0.08)", color: H.primary, fontFamily: fontSans, opacity: unread ? 1 : 0.5 }}
-                  onClick={() => store.markAllRead(NOTIFICATIONS.map((n) => n.id))}
+                  onClick={() => store.markAllRead(allNotifs.map((n) => n.id))}
                   whileTap={{ scale: 0.93 }}>
                   Бүгдийг уншсан
                 </motion.button>
@@ -462,7 +574,7 @@ function NotificationBtn() {
 
               {/* List */}
               <div className="overflow-y-auto" style={{ maxHeight: "56dvh", scrollbarWidth: "none" }}>
-                {NOTIFICATIONS.length === 0 ? (
+                {allNotifs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-3">
                     <Bell size={36} color={H.accent} strokeWidth={1.2} />
                     <p style={{ fontFamily: fontSans, color: H.muted, fontSize: 13 }}>Мэдэгдэл байхгүй байна</p>
@@ -470,15 +582,16 @@ function NotificationBtn() {
                   </div>
                 ) : (
                   <motion.div variants={staggerContainer} initial="hidden" animate="show">
-                    {NOTIFICATIONS.map((n, i) => (
+                    {allNotifs.map((n, i) => (
                       <motion.div key={n.id} variants={staggerItem}
                         className="flex items-start gap-3 px-5 py-4"
-                        style={{ borderBottom: i < NOTIFICATIONS.length - 1 ? `1px solid ${H.border}` : "none",
-                          background: isRead(n) ? "transparent" : "rgba(14,92,55,0.035)" }}>
+                        style={{ borderBottom: i < allNotifs.length - 1 ? `1px solid ${H.border}` : "none",
+                          background: isRead(n) ? "transparent" : "rgba(14,92,55,0.035)" }}
+                        onClick={() => handleTap(n)}>
                         {/* Icon badge */}
                         <div className="size-10 rounded-2xl flex items-center justify-center flex-shrink-0 mt-0.5"
                           style={{ background: isRead(n) ? H.accent + "40" : `rgba(14,92,55,0.10)` }}>
-                          <n.Icon size={18} color={isRead(n) ? H.muted : H.primary} strokeWidth={1.8} />
+                          {"Icon" in n ? <n.Icon size={18} color={isRead(n) ? H.muted : H.primary} strokeWidth={1.8} /> : <Package size={18} color={isRead(n) ? H.muted : H.primary} strokeWidth={1.8} /> }
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
@@ -492,7 +605,7 @@ function NotificationBtn() {
                           <p className="text-[12px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>{n.body}</p>
                           <div className="flex items-center gap-1 mt-1.5">
                             <Clock size={10} color={H.muted} />
-                            <span className="text-[10px]" style={{ fontFamily: fontSans, color: H.muted }}>{n.time} өмнө</span>
+                            <span className="text-[10px]" style={{ fontFamily: fontSans, color: H.muted }}>{"time" in n ? `${n.time} өмнө` : ""}</span>
                           </div>
                         </div>
                       </motion.div>
@@ -3725,7 +3838,14 @@ function OrderDetailScreen({ onBack, order }: { onBack: () => void; order: Order
                 {done ? <CheckCircle size={13} color="white" strokeWidth={2.4} /> : active ? <div className="size-2 rounded-full bg-white" /> : <Dot size={13} color={H.muted} />}
               </motion.div>
               <span className="text-[13px] font-medium" style={{ fontFamily: fontSans, color: done || active ? H.text : H.muted }}>{s}</span>
-              {active && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full ml-auto" style={{ background: "rgba(246,182,35,0.15)", color: "#9A7B12", fontFamily: fontSans }}>Одоо</span>}
+              {active && (
+                <div className="ml-auto flex items-center gap-1">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(246,182,35,0.15)", color: "#9A7B12", fontFamily: fontSans }}>Одоо</span>
+                  {order.placedAt && order.statusIdx < 4 && (
+                    <CountDown to={order.placedAt + ORDER_STEP_DURATIONS.slice(0, order.statusIdx + 1).reduce((a, b) => a + b, 0)} />
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -4024,6 +4144,7 @@ const PAY_METHODS = [
   { id: "cash",   label: "Кассанд бэлнээр", Icon: Store,      tint: H.muted },
 ];
 const ORDER_STEPS = ["Бэлтгэж байна", "Жигнэж байна", "Чанар шалгах", "Авахад бэлэн", "Дууссан"];
+const ORDER_STEP_DURATIONS = [45_000, 60_000, 30_000, 90_000];
 // Coupon → discount amount for a given subtotal (business logic).
 const couponDiscount = (c: CouponT, subtotal: number) => {
   const pct = c.title.match(/(\d+)\s*%/);
@@ -4034,10 +4155,10 @@ const couponDiscount = (c: CouponT, subtotal: number) => {
 };
 
 // Normalize any order (placed or mock) into one display shape for Orders + OrderDetail.
-type OrderView = { id: string; date: string; statusIdx: number; items: { name: string; qty: number; price: number }[]; subtotal: number; discount: number; pointsUsed: number; total: number; store: string; pickup: string; payment: string; earned?: number; cartItems?: CartItem[] };
+type OrderView = { id: string; date: string; statusIdx: number; items: { name: string; qty: number; price: number }[]; subtotal: number; discount: number; pointsUsed: number; total: number; store: string; pickup: string; payment: string; earned?: number; cartItems?: CartItem[]; placedAt?: number };
 const toOrderView = (o: any): OrderView => {
   if (typeof o.status === "number") {   // PlacedOrder
-    return { id: o.id, date: o.date, statusIdx: o.status, subtotal: o.subtotal, discount: o.discount, pointsUsed: o.pointsUsed, total: o.total, store: o.store, pickup: o.pickup, payment: o.payment, earned: o.earned, cartItems: o.items,
+    return { id: o.id, date: o.date, statusIdx: o.status, subtotal: o.subtotal, discount: o.discount, pointsUsed: o.pointsUsed, total: o.total, store: o.store, pickup: o.pickup, payment: o.payment, earned: o.earned, cartItems: o.items, placedAt: o.placedAt,
       items: o.items.map((it: CartItem) => ({ name: PRODUCTS.find((p) => p.id === it.pid)?.name || "", qty: it.qty, price: productPrice(it.pid) })) };
   }
   const statusIdx = o.status === "Хүргэгдсэн" ? 4 : o.status === "Замд" ? 3 : 2;   // mock ORDERS
@@ -4050,6 +4171,24 @@ function CartScreen({ onBack }: { onBack: () => void }) {
   const store = useStore();
   const nav = useNav();
   const items = store.cart;
+  const [deletedItem, setDeletedItem] = useState<CartItem | null>(null);
+  const undoRef = useRef<number | null>(null);
+
+  const handleDelete = (it: CartItem) => {
+    setDeletedItem(it);
+    store.removeItem(it.pid);
+    if (undoRef.current) clearTimeout(undoRef.current);
+    undoRef.current = window.setTimeout(() => setDeletedItem(null), 5000);
+  };
+
+  const handleUndo = () => {
+    if (deletedItem) {
+      store.addToCart(deletedItem.pid, deletedItem.qty, deletedItem.temp);
+      setDeletedItem(null);
+      if (undoRef.current) clearTimeout(undoRef.current);
+    }
+  };
+
   return (
     <ScreenShell title="Сагс" subtitle={`${store.cartCount} бүтээгдэхүүн`} onBack={onBack} pad={false}>
       {items.length === 0 ? (
@@ -4069,29 +4208,61 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                 if (!p) return null;
                 return (
                   <motion.div key={it.pid} layout
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -40, height: 0, marginBottom: 0 }}
-                    transition={{ type: "spring", stiffness: 420, damping: 30 }}
-                    className="flex gap-3 rounded-2xl p-3" style={{ background: H.card, border: `1px solid ${H.border}` }}>
-                    <div className="size-16 rounded-xl overflow-hidden flex-shrink-0 relative"><CoverImg src={p.img} alt={p.name} /></div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-bold leading-tight" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
-                      {it.temp && <p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>{it.temp === "hot" ? "Халуун" : "Хүйтэн"}</p>}
-                      <p className="text-[13px] font-bold mt-0.5" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
+                    className="relative overflow-hidden rounded-2xl"
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, x: -40, height: 0, marginBottom: 0 }}
+                    transition={{ type: "spring", stiffness: 420, damping: 30 }}>
+                    {/* Delete background visible on swipe */}
+                    <div className="absolute inset-0 flex items-center justify-end pr-6" style={{ background: H.pink }}>
+                      <X size={18} color="white" strokeWidth={2.5} />
                     </div>
-                    <div className="flex flex-col items-end justify-between">
-                      <motion.button aria-label="Устгах" onClick={() => store.removeItem(it.pid)} whileTap={{ scale: 0.85 }} className="size-6 rounded-full flex items-center justify-center" style={{ background: H.bg }}>
-                        <X size={13} color={H.muted} strokeWidth={2.2} />
-                      </motion.button>
-                      <div className="flex items-center gap-1 rounded-full p-0.5" style={{ background: H.bg, border: `1px solid ${H.border}` }}>
-                        <motion.button aria-label="Хасах" onClick={() => store.setQty(it.pid, it.qty - 1)} whileTap={{ scale: 0.9 }} className="size-7 rounded-full flex items-center justify-center" style={{ background: H.card, border: `1px solid ${H.border}` }}><Minus size={13} color={H.text} strokeWidth={2.4} /></motion.button>
-                        <span className="w-6 text-center text-[14px] font-bold" style={{ fontFamily: fontSans, color: H.text, fontVariantNumeric: "tabular-nums" }}>{it.qty}</span>
-                        <motion.button aria-label="Нэмэх" onClick={() => store.setQty(it.pid, it.qty + 1)} whileTap={{ scale: 0.9 }} className="size-7 rounded-full flex items-center justify-center" style={{ background: H.primary }}><Plus size={13} color="white" strokeWidth={2.4} /></motion.button>
+                    {/* Swipeable card */}
+                    <motion.div drag="x" dragConstraints={{ left: 0, right: 0 }} dragElastic={{ left: 0.4, right: 0 }}
+                      onDragEnd={(_, info) => { if (info.offset.x < -80) handleDelete(it); }}
+                      className="flex gap-3 rounded-2xl p-3" style={{ background: H.card, border: `1px solid ${H.border}` }}>
+                      <div className="size-16 rounded-xl overflow-hidden flex-shrink-0 relative"><CoverImg src={p.img} alt={p.name} /></div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold leading-tight" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
+                        {it.temp && <p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>{it.temp === "hot" ? "Халуун" : "Хүйтэн"}</p>}
+                        <p className="text-[13px] font-bold mt-0.5" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
+                        <motion.button className="text-[10px] font-medium mt-1.5" style={{ color: H.muted, fontFamily: fontSans, textDecoration: "underline", textUnderlineOffset: 2 }} onClick={() => store.saveForLater(it.pid)} whileTap={{ scale: 0.93 }}>Дараа хадгалах</motion.button>
                       </div>
-                    </div>
+                      <div className="flex flex-col items-end justify-between">
+                        <motion.button aria-label="Устгах" onClick={() => handleDelete(it)} whileTap={{ scale: 0.85 }} className="size-6 rounded-full flex items-center justify-center" style={{ background: H.bg }}>
+                          <X size={13} color={H.muted} strokeWidth={2.2} />
+                        </motion.button>
+                        <div className="flex items-center gap-1 rounded-full p-0.5" style={{ background: H.bg, border: `1px solid ${H.border}` }}>
+                          <motion.button aria-label="Хасах" onClick={() => store.setQty(it.pid, it.qty - 1)} whileTap={{ scale: 0.9 }} className="size-7 rounded-full flex items-center justify-center" style={{ background: H.card, border: `1px solid ${H.border}` }}><Minus size={13} color={H.text} strokeWidth={2.4} /></motion.button>
+                          <span className="w-6 text-center text-[14px] font-bold" style={{ fontFamily: fontSans, color: H.text, fontVariantNumeric: "tabular-nums" }}>{it.qty}</span>
+                          <motion.button aria-label="Нэмэх" onClick={() => store.setQty(it.pid, it.qty + 1)} whileTap={{ scale: 0.9 }} className="size-7 rounded-full flex items-center justify-center" style={{ background: H.primary }}><Plus size={13} color="white" strokeWidth={2.4} /></motion.button>
+                        </div>
+                      </div>
+                    </motion.div>
                   </motion.div>
                 );
               })}
             </AnimatePresence>
+            {store.savedItems.length > 0 && (
+              <div className="pt-2 pb-4">
+                <SH title="Хадгалсан" />
+                <div className="space-y-2">
+                  {store.savedItems.map((it) => {
+                    const p = PRODUCTS.find((x) => x.id === it.pid);
+                    if (!p) return null;
+                    return (
+                      <div key={it.pid} className="flex items-center gap-3 rounded-2xl p-3" style={{ background: H.card, border: `1px solid ${H.border}` }}>
+                        <div className="size-14 rounded-xl overflow-hidden flex-shrink-0 relative"><CoverImg src={p.img} alt={p.name} /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
+                          <p className="text-[12px] font-bold mt-0.5" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
+                        </div>
+                        <motion.button className="text-[11px] font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: H.primary, fontFamily: fontSans }} onClick={() => store.moveToCart(it.pid)} whileTap={{ scale: 0.93 }}>Сагсанд</motion.button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           {/* Sticky total + CTA */}
           <div className="flex-shrink-0 px-5 pt-3" style={{ background: H.card, borderTop: `1px solid ${H.border}`, paddingBottom: `calc(${SAFE_BOTTOM} + 4px)`, boxShadow: "0 -6px 24px rgba(14,92,55,0.08)" }}>
@@ -4106,6 +4277,18 @@ function CartScreen({ onBack }: { onBack: () => void }) {
           </div>
         </div>
       )}
+      {/* Undo snackbar */}
+      <AnimatePresence>
+        {deletedItem && (
+          <motion.div className="fixed left-0 right-0 z-50 flex items-center justify-between px-5 py-3"
+            style={{ bottom: 0, paddingBottom: `calc(${SAFE_BOTTOM} + 40px)`, background: H.text, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
+            initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}>
+            <span className="text-[13px] text-white" style={{ fontFamily: fontSans }}>Бүтээгдэхүүн устгагдсан</span>
+            <motion.button className="text-[13px] font-bold" style={{ color: H.gold, fontFamily: fontDisplay }} onClick={handleUndo} whileTap={{ scale: 0.92 }}>Буцаах</motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </ScreenShell>
   );
 }
@@ -4302,6 +4485,7 @@ function SuccessScreen({ onBack, order, earned }: { onBack: () => void; order: P
 }
 
 function NavHost({ user }: { user?: ApiUser | null }) {
+  const store = useStore();
   const { stack, pop, reset } = useNav();
   const top = stack[stack.length - 1];
   const render = (e: NavEntry) => {
@@ -4314,7 +4498,7 @@ function NavHost({ user }: { user?: ApiUser | null }) {
       case "checkout":        return <CheckoutScreen onBack={pop} user={user} />;
       case "success":         return <SuccessScreen onBack={() => reset()} order={e.params.order} earned={e.params.earned} />;
       case "orders":          return <OrdersScreen onBack={pop} />;
-      case "order":           return <OrderDetailScreen onBack={pop} order={e.params} />;
+      case "order":           return <OrderDetailScreen onBack={pop} order={typeof e.params === "string" ? toOrderView(store.orders.find((o) => o.id === e.params) ?? store.orders[0]) : e.params} />;
       case "membership":      return <MembershipScreen onBack={pop} user={user} />;
       case "rewardsProgress": return <RewardsProgressScreen onBack={pop} user={user} />;
       case "settings":        return <SettingsScreen onBack={pop} />;
