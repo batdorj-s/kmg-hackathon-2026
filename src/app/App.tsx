@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext, Component } from "react";
+import { useState, useEffect, useRef, createContext, useContext, Component, lazy, Suspense } from "react";
 import type { ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import imgLogoWhite from "../imports/ConvenienceStoreApp/7b55f6acb463e894cdce1c9f059b2cb0057e78f8.png";
@@ -23,7 +23,8 @@ import {
 import type { User as ApiUser } from "../lib/api";
 import { createUser, getLeaderboard, saveGameScore, addXp, updateLastActive, subscribeLeaderboard } from "../lib/api";
 import { NicknameModal } from "../components/NicknameModal";
-import CakeViewer3D from "../components/CakeViewer3D";
+// Lazy-loaded: pulls in @google/model-viewer (~large) only when a user opens the 3D/AR view.
+const CakeViewer3D = lazy(() => import("../components/CakeViewer3D"));
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const H = {
@@ -442,7 +443,7 @@ function CoverImg({ src, alt }: { src: string; alt: string }) {
     ? <div className="absolute inset-0 flex items-center justify-center" style={{ background: H.accent }}>
         <Cake size={28} color={H.muted} strokeWidth={1.4} />
       </div>
-    : <img src={src} alt={alt} onError={() => setErr(true)}
+    : <img src={src} alt={alt} onError={() => setErr(true)} loading="lazy" decoding="async"
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />;
 }
 
@@ -1000,7 +1001,7 @@ function ProductDetailSheet({
   return createPortal(
     <AnimatePresence>
       {product && (
-        <motion.div className="fixed inset-0 z-50 flex flex-col"
+        <motion.div key="detail-sheet" className="fixed inset-0 z-50 flex flex-col"
           style={{ background: H.bg }}
           initial={{ x: "100%" }}
           animate={{ x: 0,      transition: { duration: 0.42, ease: easeDrawer } }}
@@ -1062,6 +1063,8 @@ function ProductDetailSheet({
                 <img
                   src={product.img}
                   alt={product.name}
+                  loading="lazy"
+                  decoding="async"
                   className="absolute inset-0 w-full h-full object-cover rounded-2xl"
                   style={{ boxShadow: "0 16px 40px rgba(0,0,0,0.25)" }}
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
@@ -1168,7 +1171,7 @@ function ProductDetailSheet({
                     <div className="absolute top-0 right-0 size-16 rounded-full opacity-[0.10] bg-white pointer-events-none" />
                     {/* Product image */}
                     <div className="absolute inset-x-2 top-2 bottom-10 overflow-hidden rounded-xl">
-                      <img src={p.img} alt={p.name}
+                      <img src={p.img} alt={p.name} loading="lazy" decoding="async"
                         className="w-full h-full object-cover"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                     </div>
@@ -1258,7 +1261,7 @@ function ProductDetailSheet({
         </motion.div>
       )}
       {product?.glbUrl && show3d && (
-        <motion.div className="fixed inset-0 z-[60] flex flex-col"
+        <motion.div key="detail-3d" className="fixed inset-0 z-[60] flex flex-col"
           style={{ background: H.bg }}
           initial={{ opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1, transition: { duration: 0.24, ease } }}
@@ -1276,11 +1279,18 @@ function ProductDetailSheet({
             <div className="size-9" />
           </div>
           <div className="flex-1 px-4 pb-4">
-            <CakeViewer3D
-              glbUrl={product.glbUrl}
-              name={product.name}
-              basePrice={product.price}
-            />
+            <Suspense fallback={
+              <div className="w-full h-full flex items-center justify-center rounded-3xl"
+                style={{ background: "radial-gradient(120% 100% at 50% 0%, #22371F 0%, #14261A 55%, #0C1E12 100%)" }}>
+                <div className="size-9 rounded-full border-2 border-white/15 border-t-white/80 animate-spin" />
+              </div>
+            }>
+              <CakeViewer3D
+                glbUrl={product.glbUrl}
+                name={product.name}
+                basePrice={product.price}
+              />
+            </Suspense>
           </div>
         </motion.div>
       )}

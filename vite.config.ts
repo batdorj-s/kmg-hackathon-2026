@@ -33,4 +33,18 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  build: {
+    rollupOptions: {
+      output: {
+        // Split large third-party deps into cacheable vendor chunks so the main app
+        // bundle stays small and browsers can cache libraries across deploys.
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          motion: ['motion'],
+          vendor: ['qrcode.react', '@supabase/supabase-js'],
+        },
+      },
+    },
+  },
 })
