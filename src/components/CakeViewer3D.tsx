@@ -72,8 +72,6 @@ export default function CakeViewer3D({ glbUrl, name, basePrice, onSizeChange }: 
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(false);
   const [arAvailable, setArAvailable] = useState(false);
-  const [arHint, setArHint] = useState(false);
-  const [inAR, setInAR] = useState(false);
 
   const activeSize = SIZES[sizeIdx];
   const sizedPrice = basePrice + activeSize.priceAdd;
@@ -109,7 +107,11 @@ export default function CakeViewer3D({ glbUrl, name, basePrice, onSizeChange }: 
           if (w > 0) naturalRef.current = { w, h: dims.y };
         }
       }
-      setArAvailable(Boolean((el as unknown as { canActivateAR?: boolean }).canActivateAR));
+      // canActivateAR is often still false the instant the model loads — re-check a few times.
+      const checkAR = () => setArAvailable(Boolean((el as unknown as { canActivateAR?: boolean }).canActivateAR));
+      checkAR();
+      setTimeout(checkAR, 600);
+      setTimeout(checkAR, 1600);
     };
     const onError = () => { setError(true); setLoading(false); };
     const onProgress = (e: Event) => {
@@ -118,7 +120,6 @@ export default function CakeViewer3D({ glbUrl, name, basePrice, onSizeChange }: 
     };
     const onArStatus = (e: Event) => {
       const status = (e as CustomEvent<{ status: string }>).detail?.status;
-      setInAR(status === "session-started");
       // Returning from AR → restore the natural viewer scale so framing stays correct.
       if (status === "not-presenting") ref.current?.setAttribute("scale", "1 1 1");
     };
@@ -145,19 +146,6 @@ export default function CakeViewer3D({ glbUrl, name, basePrice, onSizeChange }: 
     if (!nat || nat.w <= 0) return Math.round(activeSize.cm * 0.6); // fallback proportion
     return Math.max(1, Math.round((nat.h / nat.w) * activeSize.cm));
   })();
-
-  const enterAR = async () => {
-    const el = ref.current as unknown as { activateAR?: () => Promise<void>; canActivateAR?: boolean } | null;
-    if (!el) return;
-    if (!el.canActivateAR) {
-      // Desktop / unsupported browser — don't disturb the viewer, just guide the user.
-      setArHint(true);
-      setTimeout(() => setArHint(false), 4200);
-      return;
-    }
-    applyScale(activeSize.cm); // place the cake at the exact selected real-world size
-    try { await el.activateAR(); } catch { /* user dismissed */ }
-  };
 
   const handleScreenshot = async () => {
     const el = ref.current as unknown as { toBlob?: () => Promise<Blob | null> } | null;
@@ -226,20 +214,37 @@ export default function CakeViewer3D({ glbUrl, name, basePrice, onSizeChange }: 
             loading="eager"
             reveal="auto"
             style={{ width: "100%", height: "100%", backgroundColor: "transparent" }}
-          />
+          >
+            {/* Native AR button — model-viewer shows this ONLY on AR-capable phones and wires
+                up the camera + surface placement itself (iOS Quick Look · Android Scene Viewer
+                / WebXR). Tapping it first locks the model to the selected real-world size. */}
+            <button slot="ar-button" onClick={() => applyScale(activeSize.cm)}
+              style={{
+                position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)",
+                height: 46, padding: "0 22px", borderRadius: 999, border: "none", whiteSpace: "nowrap",
+                display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+                background: `linear-gradient(135deg, #14764A, ${H_primary})`, color: "#fff",
+                fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14,
+                boxShadow: "0 8px 22px rgba(14,92,55,0.45)",
+              }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg>
+              AR-р {activeSize.cm}см бодит хэмжээгээр үзэх
+            </button>
+          </model-viewer>
         )}
 
         {!error && !loading && (
           <>
             {/* Gesture hint */}
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full flex items-center gap-1.5 z-10"
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full flex items-center gap-1.5 z-10 pointer-events-none"
               style={{ background: "rgba(0,0,0,0.32)", backdropFilter: "blur(8px)" }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" opacity="0.85"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 3v6h6"/></svg>
               <span className="text-[10px] text-white/75" style={{ fontFamily: "var(--font-sans)" }}>Чирж эргүүлэх · Хумсдаж томруулах</span>
             </div>
 
+            {/* Screenshot — bottom-LEFT so it never covers the AR button */}
             <button onClick={handleScreenshot}
-              className="absolute bottom-3 right-3 size-9 rounded-full flex items-center justify-center z-10"
+              className="absolute bottom-3 left-3 size-9 rounded-full flex items-center justify-center z-10"
               style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(8px)" }}
               aria-label="Зураг авах">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -248,20 +253,15 @@ export default function CakeViewer3D({ glbUrl, name, basePrice, onSizeChange }: 
         )}
       </div>
 
-      {/* ── AR call-to-action ── */}
-      {!error && (
-        <button onClick={enterAR}
-          className="w-full mt-3 h-12 rounded-2xl flex items-center justify-center gap-2 font-bold text-[15px] text-white active:scale-[0.98] transition-transform"
-          style={{ background: `linear-gradient(135deg, #14764A, ${H_primary})`, fontFamily: "var(--font-display)", boxShadow: "0 8px 20px rgba(14,92,55,0.28)" }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg>
-          {inAR ? "AR идэвхтэй" : `AR-р ${activeSize.cm} см бодит хэмжээгээр үзэх`}
-        </button>
-      )}
-
-      {arHint && (
-        <p className="text-[11px] text-center mt-2 px-3 py-2 rounded-xl"
-          style={{ fontFamily: "var(--font-sans)", color: "#8A6D1F", background: "rgba(199,154,59,0.12)" }}>
-          AR-г ашиглахын тулд энэ хуудсыг гар утсаараа (iOS Safari / Android Chrome) нээнэ үү.
+      {/* AR availability note — the green «AR» button above only appears on AR-capable phones */}
+      {!error && !loading && (
+        <p className="text-[11px] text-center mt-3 px-3 py-2 rounded-xl"
+          style={{ fontFamily: "var(--font-sans)",
+            color: arAvailable ? H_primary : "#8A6D1F",
+            background: arAvailable ? "rgba(14,92,55,0.07)" : "rgba(199,154,59,0.12)" }}>
+          {arAvailable
+            ? "Дэлгэц дээрх «AR» товчийг дараад камераа ширээ рүү чиглүүлж бялууг бодит хэмжээгээр байрлуулна."
+            : "AR-г дэмждэг утсан дээр (iOS 12+ Safari · ARCore-той Android Chrome) нээвэл дэлгэц дээр «AR» товч гарч ирнэ."}
         </p>
       )}
 

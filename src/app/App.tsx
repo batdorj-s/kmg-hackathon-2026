@@ -1073,7 +1073,7 @@ function ProductDetailSheet({
           {/* ── White content panel ── */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden rounded-t-[24px] -mt-6 relative"
             style={{ background: H.card, scrollbarWidth: "none" }}>
-            <motion.div className="px-5 pt-6 pb-32"
+            <motion.div className="px-5 pt-6 pb-6"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.34, ease, delay: 0.12 }}>
