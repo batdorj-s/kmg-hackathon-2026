@@ -15,7 +15,7 @@ import {
   Heart, Tag, Plus, ListChecks, Ticket,
   Sun, Sunset, Moon, Coffee, Flame,
   Target, Cake, ArrowRight, Minus,
-  Croissant, Cookie, Donut, LayoutGrid, X, Wheat,
+  Croissant, Cookie, Donut, LayoutGrid, X, Wheat, Trash2,
   Brain, Share2, HelpCircle, Shuffle, Lightbulb, Dot,
   LogOut, ChevronLeft, Truck,
 } from "lucide-react";
@@ -4170,9 +4170,24 @@ const toOrderView = (o: any): OrderView => {
 function CartScreen({ onBack }: { onBack: () => void }) {
   const store = useStore();
   const nav = useNav();
+  const reduce = useReducedMotion();
   const items = store.cart;
+  const subtotal = store.cartTotal;
+
   const [deletedItem, setDeletedItem] = useState<CartItem | null>(null);
   const undoRef = useRef<number | null>(null);
+
+  const eligible = walletCoupons(store.redeemed).filter((c) => couponStatus(c, store.usedCoupons) === "available");
+  const bestCoupon = eligible.length > 0 ? eligible.reduce((a, b) => (couponDiscount(a, subtotal) > couponDiscount(b, subtotal) ? a : b)) : null;
+  const [couponId, setCouponId] = useState<number | null>(null);
+  const appliedCoupon = eligible.find((c) => c.id === couponId) ?? null;
+  const discount = appliedCoupon ? couponDiscount(appliedCoupon, subtotal) : 0;
+
+  const [usePoints, setUsePoints] = useState(false);
+  const afterCoupon = Math.max(0, subtotal - discount);
+  const pointsUsed = usePoints ? Math.min(store.points, afterCoupon) : 0;
+  const total = Math.max(0, afterCoupon - pointsUsed);
+  const earned = earnedFor(total);
 
   const handleDelete = (it: CartItem) => {
     setDeletedItem(it);
@@ -4189,6 +4204,8 @@ function CartScreen({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const notInCart = PRODUCTS.filter((p) => !items.some((it) => it.pid === p.id));
+
   return (
     <ScreenShell title="Сагс" subtitle={`${store.cartCount} бүтээгдэхүүн`} onBack={onBack} pad={false}>
       {items.length === 0 ? (
@@ -4201,49 +4218,94 @@ function CartScreen({ onBack }: { onBack: () => void }) {
         </div>
       ) : (
         <div className="flex flex-col h-full">
-          <div className="flex-1 overflow-y-auto px-5 pt-4 space-y-3" style={{ scrollbarWidth: "none" }}>
-            <AnimatePresence initial={false}>
-              {items.map((it) => {
-                const p = PRODUCTS.find((x) => x.id === it.pid);
-                if (!p) return null;
-                return (
-                  <motion.div key={it.pid} layout
-                    className="relative overflow-hidden rounded-2xl"
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -40, height: 0, marginBottom: 0 }}
-                    transition={{ type: "spring", stiffness: 420, damping: 30 }}>
-                    {/* Delete background visible on swipe */}
-                    <div className="absolute inset-0 flex items-center justify-end pr-6" style={{ background: H.pink }}>
-                      <X size={18} color="white" strokeWidth={2.5} />
-                    </div>
-                    {/* Swipeable card */}
-                    <motion.div drag="x" dragConstraints={{ left: 0, right: 0 }} dragElastic={{ left: 0.4, right: 0 }}
-                      onDragEnd={(_, info) => { if (info.offset.x < -80) handleDelete(it); }}
-                      className="flex gap-3 rounded-2xl p-3" style={{ background: H.card, border: `1px solid ${H.border}` }}>
-                      <div className="size-16 rounded-xl overflow-hidden flex-shrink-0 relative"><CoverImg src={p.img} alt={p.name} /></div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-bold leading-tight" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
-                        {it.temp && <p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>{it.temp === "hot" ? "Халуун" : "Хүйтэн"}</p>}
-                        <p className="text-[13px] font-bold mt-0.5" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
-                        <motion.button className="text-[10px] font-medium mt-1.5" style={{ color: H.muted, fontFamily: fontSans, textDecoration: "underline", textUnderlineOffset: 2 }} onClick={() => store.saveForLater(it.pid)} whileTap={{ scale: 0.93 }}>Дараа хадгалах</motion.button>
+          <div className="flex-1 overflow-y-auto pb-4" style={{ scrollbarWidth: "none" }}>
+
+            {/* ── Cart Items ── */}
+            <div className="px-5 pt-4 space-y-3">
+              <AnimatePresence initial={false}>
+                {items.map((it) => {
+                  const p = PRODUCTS.find((x) => x.id === it.pid);
+                  if (!p) return null;
+                  return (
+                    <motion.div key={it.pid} layout
+                      className="relative overflow-hidden rounded-3xl"
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -40, height: 0, marginBottom: 0 }}
+                      transition={{ type: "spring", stiffness: 420, damping: 30 }}>
+                      <div className="absolute inset-0 flex items-center justify-end pr-6" style={{ background: H.pink }}>
+                        <Trash2 size={20} color="white" strokeWidth={2} />
                       </div>
-                      <div className="flex flex-col items-end justify-between">
-                        <motion.button aria-label="Устгах" onClick={() => handleDelete(it)} whileTap={{ scale: 0.85 }} className="size-6 rounded-full flex items-center justify-center" style={{ background: H.bg }}>
-                          <X size={13} color={H.muted} strokeWidth={2.2} />
-                        </motion.button>
-                        <div className="flex items-center gap-1 rounded-full p-0.5" style={{ background: H.bg, border: `1px solid ${H.border}` }}>
-                          <motion.button aria-label="Хасах" onClick={() => store.setQty(it.pid, it.qty - 1)} whileTap={{ scale: 0.9 }} className="size-7 rounded-full flex items-center justify-center" style={{ background: H.card, border: `1px solid ${H.border}` }}><Minus size={13} color={H.text} strokeWidth={2.4} /></motion.button>
-                          <span className="w-6 text-center text-[14px] font-bold" style={{ fontFamily: fontSans, color: H.text, fontVariantNumeric: "tabular-nums" }}>{it.qty}</span>
-                          <motion.button aria-label="Нэмэх" onClick={() => store.setQty(it.pid, it.qty + 1)} whileTap={{ scale: 0.9 }} className="size-7 rounded-full flex items-center justify-center" style={{ background: H.primary }}><Plus size={13} color="white" strokeWidth={2.4} /></motion.button>
+                      <motion.div drag="x" dragConstraints={{ left: 0, right: 0 }} dragElastic={{ left: 0.4, right: 0 }}
+                        onDragEnd={(_, info) => { if (info.offset.x < -80) handleDelete(it); }}
+                        style={{ background: H.card, border: `1px solid ${H.border}` }}
+                        className="rounded-3xl overflow-hidden">
+                        {/* Main row */}
+                        <div className="flex gap-3 p-3">
+                          <div className="size-[72px] rounded-2xl overflow-hidden flex-shrink-0 relative" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                            <CoverImg src={p.img} alt={p.name} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[15px] font-bold leading-tight" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
+                            <p className="text-[11px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>{p.tag}</p>
+                            <p className="text-[12px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>{fmt(p.price)} × {it.qty}</p>
+                            <p className="text-[16px] font-bold mt-1" style={{ color: H.primary, fontFamily: fontDisplay, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
+                          </div>
                         </div>
-                      </div>
+                        {/* Bottom actions row */}
+                        <div className="flex items-center justify-between px-3 pb-3" style={{ borderTop: `1px solid ${H.border}`, paddingTop: 12, marginTop: 0 }}>
+                          <div className="flex items-center gap-4">
+                            <motion.button
+                              className="flex items-center gap-1.5 text-[12px] font-medium"
+                              style={{ color: H.muted, fontFamily: fontSans }}
+                              onClick={() => store.saveForLater(it.pid)}
+                              whileTap={{ scale: 0.92 }}>
+                              <Heart size={14} color={H.muted} strokeWidth={1.8} /> Хадгалах
+                            </motion.button>
+                            <motion.button
+                              className="flex items-center gap-1.5 text-[12px] font-medium"
+                              style={{ color: H.muted, fontFamily: fontSans }}
+                              onClick={() => handleDelete(it)}
+                              whileTap={{ scale: 0.92 }}>
+                              <Trash2 size={14} color={H.muted} strokeWidth={1.8} /> Устгах
+                            </motion.button>
+                          </div>
+                          <div className="flex items-center gap-1 rounded-full p-0.5" style={{ background: H.bg, border: `1px solid ${H.border}` }}>
+                            <motion.button aria-label="Хасах"
+                              onClick={() => store.setQty(it.pid, Math.max(1, it.qty - 1))}
+                              whileTap={{ scale: 0.88 }}
+                              className="size-8 rounded-full flex items-center justify-center"
+                              style={{ background: H.card, border: `1px solid ${H.border}` }}
+                              whileHover={{ scale: 1.05 }}>
+                              <Minus size={14} color={H.text} strokeWidth={2.5} />
+                            </motion.button>
+                            <motion.span key={it.qty}
+                              className="w-8 text-center text-[16px] font-bold select-none"
+                              style={{ fontFamily: fontSans, color: H.text, fontVariantNumeric: "tabular-nums" }}
+                              initial={reduce ? undefined : { scale: 1.3 }}
+                              animate={{ scale: 1 }}
+                              transition={{ type: "spring", stiffness: 500, damping: 15 }}>
+                              {it.qty}
+                            </motion.span>
+                            <motion.button aria-label="Нэмэх"
+                              onClick={() => store.setQty(it.pid, it.qty + 1)}
+                              whileTap={{ scale: 0.88 }}
+                              className="size-8 rounded-full flex items-center justify-center"
+                              style={{ background: H.primary }}
+                              whileHover={{ scale: 1.05 }}>
+                              <Plus size={14} color="white" strokeWidth={2.5} />
+                            </motion.button>
+                          </div>
+                        </div>
+                      </motion.div>
                     </motion.div>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+
+            {/* ── Saved Items ── */}
             {store.savedItems.length > 0 && (
-              <div className="pt-2 pb-4">
+              <div className="px-5 pt-5">
                 <SH title="Хадгалсан" />
                 <div className="space-y-2">
                   {store.savedItems.map((it) => {
@@ -4253,27 +4315,197 @@ function CartScreen({ onBack }: { onBack: () => void }) {
                       <div key={it.pid} className="flex items-center gap-3 rounded-2xl p-3" style={{ background: H.card, border: `1px solid ${H.border}` }}>
                         <div className="size-14 rounded-xl overflow-hidden flex-shrink-0 relative"><CoverImg src={p.img} alt={p.name} /></div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
+                          <p className="text-[13px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
                           <p className="text-[12px] font-bold mt-0.5" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price * it.qty)}</p>
                         </div>
-                        <motion.button className="text-[11px] font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: H.primary, fontFamily: fontSans }} onClick={() => store.moveToCart(it.pid)} whileTap={{ scale: 0.93 }}>Сагсанд</motion.button>
+                        <motion.button
+                          className="text-[11px] font-semibold px-4 py-2 rounded-full text-white"
+                          style={{ background: H.primary, fontFamily: fontSans }}
+                          onClick={() => store.moveToCart(it.pid)}
+                          whileTap={{ scale: 0.93 }}>
+                          Сагсанд
+                        </motion.button>
                       </div>
                     );
                   })}
                 </div>
               </div>
             )}
-          </div>
-          {/* Sticky total + CTA */}
-          <div className="flex-shrink-0 px-5 pt-3" style={{ background: H.card, borderTop: `1px solid ${H.border}`, paddingBottom: `calc(${SAFE_BOTTOM} + 4px)`, boxShadow: "0 -6px 24px rgba(14,92,55,0.08)" }}>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[13px]" style={{ fontFamily: fontSans, color: H.muted }}>Нийт дүн</span>
-              <span className="text-[22px] font-bold" style={{ fontFamily: fontDisplay, color: H.primary, fontVariantNumeric: "tabular-nums" }}>{fmt(store.cartTotal)}</span>
+
+            {/* ── Coupon Section ── */}
+            {eligible.length > 0 && (
+              <div className="px-5 mt-5">
+                <p className="text-[12px] font-bold uppercase tracking-wide mb-2 px-1" style={{ fontFamily: fontSans, color: H.muted }}>Купон</p>
+                <div className="rounded-2xl overflow-hidden" style={{ background: H.card, border: `1px solid ${H.border}` }}>
+                  {bestCoupon && (
+                    <motion.button
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
+                      onClick={() => setCouponId(couponId === bestCoupon.id ? null : bestCoupon.id)}
+                      whileTap={{ scale: 0.99 }}
+                      aria-label={appliedCoupon ? "Купоныг арилгах" : "Купон ашиглах"}>
+                      <div className="size-10 rounded-xl flex items-center justify-center" style={{ background: bestCoupon.color + "18" }}>
+                        <Tag size={18} color={bestCoupon.color} strokeWidth={1.8} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>{bestCoupon.title}</p>
+                        <p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>{bestCoupon.sub}</p>
+                      </div>
+                      {appliedCoupon ? (
+                        <motion.div className="size-6 rounded-full flex items-center justify-center" style={{ background: H.primary }}
+                          initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 400, damping: 15 }}>
+                          <CheckCircle size={14} color="white" strokeWidth={2.5} />
+                        </motion.div>
+                      ) : (
+                        <motion.div className="px-3 py-1.5 rounded-full text-[11px] font-semibold" style={{ background: H.primary + "12", color: H.primary, fontFamily: fontSans }}
+                          whileHover={{ scale: 1.05 }}>
+                          Ашиглах
+                        </motion.div>
+                      )}
+                    </motion.button>
+                  )}
+                  {discount > 0 && (
+                    <motion.div className="flex items-center justify-between px-4 py-2.5"
+                      style={{ borderTop: `1px solid ${H.border}`, background: "rgba(14,92,55,0.03)" }}
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}>
+                      <span className="text-[12px]" style={{ fontFamily: fontSans, color: H.muted }}>Хэмнэлт</span>
+                      <span className="text-[13px] font-bold" style={{ fontFamily: fontDisplay, color: H.pink, fontVariantNumeric: "tabular-nums" }}>−{fmt(discount)}</span>
+                    </motion.div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Points Section ── */}
+            {store.points > 0 && (
+              <div className="px-5 mt-4">
+                <p className="text-[12px] font-bold uppercase tracking-wide mb-2 px-1" style={{ fontFamily: fontSans, color: H.muted }}>Оноо</p>
+                <div className="rounded-2xl overflow-hidden" style={{ background: H.card, border: `1px solid ${H.border}` }}>
+                  <div className="flex items-center gap-3 px-4 py-3.5">
+                    <div className="size-10 rounded-xl flex items-center justify-center" style={{ background: H.gold + "20" }}>
+                      <Sparkles size={18} color={H.gold} strokeWidth={1.8} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[13px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>Дансны оноо</p>
+                      <p className="text-[12px] font-bold" style={{ fontFamily: fontSans, color: H.primary, fontVariantNumeric: "tabular-nums" }}>{store.points.toLocaleString()} Upoint</p>
+                    </div>
+                    <motion.button
+                      className={`px-4 py-2 rounded-full text-[12px] font-semibold`}
+                      style={{ background: usePoints ? H.primary : H.bg, color: usePoints ? "white" : H.muted, fontFamily: fontSans }}
+                      onClick={() => setUsePoints(!usePoints)}
+                      whileTap={{ scale: 0.93 }}>
+                      {usePoints ? "Хэрэглэж байна" : "Хэрэглэх"}
+                    </motion.button>
+                  </div>
+                  {usePoints && (
+                    <motion.div className="space-y-1.5 px-4 pb-3.5"
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}>
+                      <div className="flex justify-between text-[12px]" style={{ fontFamily: fontSans, color: H.muted }}>
+                        <span>Ашигласан оноо</span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>−{fmt(pointsUsed)}</span>
+                      </div>
+                      <div className="flex justify-between text-[12px]" style={{ fontFamily: fontSans, color: H.muted }}>
+                        <span>Үлдсэн оноо</span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(store.points - pointsUsed)}</span>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Order Summary ── */}
+            <div className="px-5 mt-4">
+              <p className="text-[12px] font-bold uppercase tracking-wide mb-2 px-1" style={{ fontFamily: fontSans, color: H.muted }}>Захиалгын дүн</p>
+              <div className="rounded-2xl overflow-hidden" style={{ background: H.card, border: `1px solid ${H.border}` }}>
+                <div className="px-4 py-3 space-y-2">
+                  <div className="flex justify-between text-[13px]" style={{ fontFamily: fontSans, color: H.text }}>
+                    <span>Дэд дүн</span>
+                    <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(subtotal)}</span>
+                  </div>
+                  {discount > 0 && (
+                    <motion.div className="flex justify-between text-[13px]" style={{ fontFamily: fontSans, color: H.pink }}
+                      initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
+                      <span>Купоны хөнгөлөлт</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>−{fmt(discount)}</span>
+                    </motion.div>
+                  )}
+                  {pointsUsed > 0 && (
+                    <motion.div className="flex justify-between text-[13px]" style={{ fontFamily: fontSans, color: H.gold }}
+                      initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
+                      <span>Оноогоор төлсөн</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>−{fmt(pointsUsed)}</span>
+                    </motion.div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between px-4 py-3.5" style={{ background: "rgba(14,92,55,0.04)", borderTop: `1px solid ${H.border}` }}>
+                  <span className="text-[14px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>НИЙТ</span>
+                  <span className="text-[22px] font-bold" style={{ fontFamily: fontDisplay, color: H.primary, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</span>
+                </div>
+              </div>
             </div>
-            <motion.button onClick={() => nav.push("checkout")} whileTap={{ scale: 0.97 }}
-              className="w-full rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white" style={{ height: 54, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.32)" }}>
-              Төлбөр төлөх <ArrowRight size={18} color="white" />
-            </motion.button>
+
+            {/* ── Reward Preview ── */}
+            <div className="px-5 mt-4">
+              <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})` }}>
+                <div className="size-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,255,255,0.18)" }}>
+                  <Gift size={20} color="white" strokeWidth={1.8} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-[13px] font-semibold text-white" style={{ fontFamily: fontDisplay }}>Таны авах урамшуулал</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-[15px] font-bold text-white" style={{ fontFamily: fontDisplay, fontVariantNumeric: "tabular-nums" }}>+{earned} Upoint</span>
+                    <span className="text-[13px] font-medium text-white/80" style={{ fontFamily: fontSans }}>+20 XP</span>
+                  </div>
+                </div>
+                <Sparkles size={22} color="rgba(255,255,255,0.5)" strokeWidth={1.5} />
+              </div>
+            </div>
+
+            {/* ── Recommendations ── */}
+            {items.length <= 3 && notInCart.length > 0 && (
+              <div className="px-5 mt-5">
+                <SH title="Санал болгох" />
+                <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
+                  {notInCart.slice(0, 6).map((p) => (
+                    <motion.button key={p.id} onClick={() => store.addToCart(p.id)}
+                      className="flex-shrink-0 w-[130px] rounded-2xl overflow-hidden text-left"
+                      style={{ background: H.card, border: `1px solid ${H.border}` }}
+                      whileTap={{ scale: 0.96 }}
+                      whileHover={{ y: -2 }}
+                      aria-label={`${p.name} нэмэх`}>
+                      <div className="h-[100px] relative"><CoverImg src={p.img} alt={p.name} /></div>
+                      <div className="p-2.5">
+                        <p className="text-[11px] font-semibold leading-tight line-clamp-2" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
+                        <p className="text-[12px] font-bold mt-1" style={{ color: H.primary, fontFamily: fontSans, fontVariantNumeric: "tabular-nums" }}>{fmt(p.price)}</p>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Bottom spacer for checkout bar */}
+            <div className="h-4" />
+          </div>
+
+          {/* ── Checkout Bar ── */}
+          <div className="flex-shrink-0 px-5 pt-3 pb-2" style={{
+            background: H.card,
+            borderTop: `1px solid ${H.border}`,
+            paddingBottom: `calc(${SAFE_BOTTOM} + 4px)`,
+            boxShadow: "0 -6px 24px rgba(14,92,55,0.08)"
+          }}>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <span className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>НИЙТ ДҮН</span>
+                <p className="text-[24px] font-bold" style={{ fontFamily: fontDisplay, color: H.primary, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</p>
+              </div>
+              <motion.button onClick={() => nav.push("checkout")}
+                whileTap={{ scale: 0.97 }}
+                className="rounded-full flex items-center justify-center gap-2 font-bold text-[16px] text-white"
+                style={{ height: 54, paddingLeft: 28, paddingRight: 28, background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay, boxShadow: "0 6px 20px rgba(14,92,55,0.32)" }}>
+                Захиалах <ArrowRight size={18} color="white" />
+              </motion.button>
+            </div>
           </div>
         </div>
       )}
