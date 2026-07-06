@@ -23,6 +23,7 @@ import {
 import type { User as ApiUser } from "../lib/api";
 import { createUser, getLeaderboard, saveGameScore, addXp, updateLastActive, subscribeLeaderboard } from "../lib/api";
 import { NicknameModal } from "../components/NicknameModal";
+import CakeViewer3D from "../components/CakeViewer3D";
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const H = {
@@ -336,9 +337,9 @@ const scaleIn = {
 const PRODUCTS = [
   { id: 1, name: "Тирамису Хайрцаг",   price: 55000, img: "https://cdn.greensoft.mn/cache/images/8/5/5/f/9/855f9bdf2f0607553c8cd6f4144aa2d08199d4d9.jpg", tag: "Бестселлер", cat: "dessert" },
   { id: 2, name: "Матча Тирамису",      price: 55000, img: "https://cdn.greensoft.mn/cache/images/0/0/0/2/7/0002711c4bebc1f8d8a3c8e7b9689af50caca2fe.jpg", tag: "Шинэ",      cat: "dessert" },
-  { id: 3, name: "Күүки & Чийз Мусс",  price: 55000, img: "https://cdn.greensoft.mn/cache/images/f/2/f/0/2/f2f02f4971d5948bb137b31f4096f1bb9d5191b3.jpg", tag: "Шинэ",      cat: "cake"    },
+  { id: 3, name: "Күүки & Чийз Мусс",  price: 55000, img: "https://cdn.greensoft.mn/cache/images/f/2/f/0/2/f2f02f4971d5948bb137b31f4096f1bb9d5191b3.jpg", tag: "Шинэ",      cat: "cake",    glbUrl: "/models/cinnamon.glb" },
   { id: 4, name: "Тоорын Хатан Хаан",  price: 80000, img: "https://cdn.greensoft.mn/cache/images/1/4/6/2/8/146281eb439a686ac332ca587d5c2fc9b9339276.jpg", tag: "Онцлох",   cat: "cake"    },
-  { id: 5, name: "Ягаан Цэцэгт Бялуу", price: 70000, img: "https://cdn.greensoft.mn/cache/images/e/1/6/b/0/e16b02756890f9b9e374a75698225cacbd5f42e7.jpg", tag: "Бялуу",    cat: "cake"    },
+  { id: 5, name: "Ягаан Цэцэгт Бялуу", price: 70000, img: "https://cdn.greensoft.mn/cache/images/e/1/6/b/0/e16b02756890f9b9e374a75698225cacbd5f42e7.jpg", tag: "Бялуу",    cat: "cake",    glbUrl: "/models/strawberry.glb" },
   { id: 6, name: "Улирлын Мусс Бялуу", price: 62000, img: "https://cdn.greensoft.mn/cache/images/a/8/7/4/b/a874be360bc334edd9f3e555de35bda9e1923c5d.jpg", tag: "Онцлох",   cat: "cake"    },
   { id: 7, name: "Сүүн Кремтэй Бялуу", price: 18000, img: "https://cdn.greensoft.mn/cache/images/a/1/f/b/2/a1fb2556281ed781c9a670040a6b82c0599f63ad.jpg", tag: "Бялуу",    cat: "cake"    },
   { id: 8, name: "Артизан Багет",       price: 7500,  img: "https://cdn.greensoft.mn/cache/images/9/0/c/7/0/90c703d57b3073b7b5bb0e0045aa77ff84b83d7d.jpg", tag: "Талх",     cat: "bread"   },
@@ -985,6 +986,7 @@ function ProductDetailSheet({
   const [temp,    setTemp]    = useState<"hot" | "cool">("cool");
   const [fav,     setFav]     = useState(false);
   const [adding,  setAdding]  = useState(false);
+  const [show3d,  setShow3d]  = useState(false);
 
   const handleAdd = () => {
     if (!product) return;
@@ -1084,6 +1086,20 @@ function ProductDetailSheet({
                 Шинэхэн гар аргаар бэлтгэсэн, өдөр бүр нийлүүлэгддэг TOUS les JOURS-ын
                 онцлох бүтээгдэхүүн. Хамгийн чанартай орц найрлагаар бэлтгэгддэг.
               </p>
+
+              {/* 3D viewer button */}
+              {product.glbUrl && (
+                <motion.button onClick={() => setShow3d(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl mb-4 text-white text-[12px] font-semibold"
+                  style={{ background: `linear-gradient(135deg, ${H.secondary}, ${H.primary})`, fontFamily: fontDisplay }}
+                  whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.96 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+                  </svg>
+                  3D харах
+                </motion.button>
+              )}
 
               {/* Star rating */}
               <div className="flex items-center gap-1.5 mb-5">
@@ -1238,6 +1254,33 @@ function ProductDetailSheet({
                 </AnimatePresence>
               </motion.button>
             </div>
+          </div>
+        </motion.div>
+      )}
+      {product?.glbUrl && show3d && (
+        <motion.div className="fixed inset-0 z-[60] flex flex-col"
+          style={{ background: H.bg }}
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1, transition: { duration: 0.24, ease } }}
+          exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16, ease } }}>
+          <div className="flex items-center justify-between px-4 pt-14 pb-2 flex-shrink-0">
+            <motion.button className="size-9 rounded-full flex items-center justify-center"
+              style={{ background: H.primary }}
+              onClick={() => setShow3d(false)}
+              whileTap={{ scale: 0.86 }}>
+              <X size={16} color="white" strokeWidth={2.5} />
+            </motion.button>
+            <span className="text-[15px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>
+              {product.name}
+            </span>
+            <div className="size-9" />
+          </div>
+          <div className="flex-1 px-4 pb-4">
+            <CakeViewer3D
+              glbUrl={product.glbUrl}
+              name={product.name}
+              basePrice={product.price}
+            />
           </div>
         </motion.div>
       )}
@@ -3164,6 +3207,16 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
                         <Tag size={8} color="white" />
                         <span className="text-[9px] font-bold text-white" style={{ fontFamily: fontSans }}>{p.tag}</span>
                       </div>
+                      {p.glbUrl && (
+                        <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full"
+                          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+                          </svg>
+                          <span className="text-[8px] font-bold text-white" style={{ fontFamily: fontSans }}>3D</span>
+                        </div>
+                      )}
                     </div>
                     <div className="p-3">
                       <p className="font-semibold text-[12px] leading-snug line-clamp-2" style={{ fontFamily: fontDisplay, color: H.text }}>{p.name}</p>
@@ -4134,8 +4187,8 @@ function SearchScreen({ onBack }: { onBack: () => void }) {
                 </div>
               </motion.div>
             ))}
-          </motion.div>
-        )}
+        </motion.div>
+      )}
       </div>
     </ScreenShell>
   );
@@ -4819,10 +4872,17 @@ function AppInner() {
   }, []);
 
   const handleUserCreated = async (name: string) => {
-    const u = await createUser(name);
-    localStorage.setItem("tlj_user_id", String(u.id));
-    setUser(u);
-    getLeaderboard().then(setLeaderboard);
+    try {
+      const u = await createUser(name);
+      localStorage.setItem("tlj_user_id", String(u.id));
+      setUser(u);
+      getLeaderboard().then(setLeaderboard);
+    } catch {
+      // Backend unavailable (or misconfigured) → never trap the user on the welcome screen;
+      // continue locally as a guest so the app is always usable.
+      try { localStorage.setItem("tlj_guest", "1"); } catch { /* private mode */ }
+      setGuest(true);
+    }
   };
 
   const handleGameOver = async (gameType: "block" | "merge" | "quiz" | "connect", score: number, xp: number, upoints: number) => {
