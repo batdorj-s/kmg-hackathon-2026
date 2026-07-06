@@ -1071,7 +1071,7 @@ function ProductDetailSheet({
           </div>
 
           {/* ── White content panel ── */}
-          <div className="flex-1 overflow-y-auto rounded-t-[24px] -mt-6 relative"
+          <div className="flex-1 overflow-y-auto overflow-x-hidden rounded-t-[24px] -mt-6 relative"
             style={{ background: H.card, scrollbarWidth: "none" }}>
             <motion.div className="px-5 pt-6 pb-32"
               initial={{ opacity: 0, y: 12 }}
@@ -1319,7 +1319,7 @@ function HomeScreen({ onNav, onAddToCart, missions, onComplete, user }: {
   // Total: 6 sections (Hick's Law ≤ 8)
 
   return (
-    <div className="flex-1 overflow-y-auto" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
+    <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
 
       {/* ─── SECTION 1: Hero — greeting + largest-number-on-screen points ─── */}
       <div className="relative overflow-hidden"
@@ -1661,11 +1661,14 @@ const shapeBounds = (shape: number[][]) => ({
   cols: Math.max(...shape.map((s) => s[1])) + 1,
 });
 
+// Vertical gap (px) between the finger and the bottom of the floating piece while dragging,
+// so the piece is never hidden under the fingertip (Block-Blast style).
+const BLOCK_DRAG_LIFT = 26;
+
 function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: () => void; onScore?: (score: number, xp: number, upoints: number) => void }) {
   const reduce = useReducedMotion();
-  const coarsePointer = !canHover;
   const boardRef = useRef<HTMLDivElement>(null);
-  const dragElRef = useRef<HTMLElement | null>(null);
+  const draggedRef = useRef(false);
   const hoverRef = useRef<{ r: number; c: number } | null>(null);
   const mobilePointerRef = useRef<number | null>(null);
   const mobileDragRef = useRef<{ idx: number; x: number; y: number; cell: { r: number; c: number } | null } | null>(null);
@@ -1722,17 +1725,39 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     }
   };
 
-  // Resolve which board cell the finger/cursor is over.
-  // Computed from the board grid geometry (finger position → row/col), which is fast
-  // (single getBoundingClientRect) and avoids forced layout on every drag frame.
+  // Map a screen point to a board cell, using the real cell-(0,0) geometry (robust to the
+  // board's inner padding and the 3px inter-cell gaps).
   const cellFromPoint = (x: number, y: number): { r: number; c: number } | null => {
     const boardEl = boardRef.current;
     if (!boardEl) return null;
-    const rect = boardEl.getBoundingClientRect();
-    const GAP = 3;
-    const pitch = (rect.width - 7 * GAP) / 8;
-    const col = Math.floor((x - rect.left) / (pitch + GAP));
-    const row = Math.floor((y - rect.top) / (pitch + GAP));
+    const origin = boardEl.querySelector('[data-pos="0-0"]') as HTMLElement | null;
+    if (!origin) return null;
+    const o = origin.getBoundingClientRect();
+    const pitch = o.width + 3;
+    const col = Math.floor((x - o.left) / pitch);
+    const row = Math.floor((y - o.top) / pitch);
+    if (row < 0 || row > 7 || col < 0 || col > 7) return null;
+    return { r: row, c: col };
+  };
+
+  // Board cell that a dragged piece's TOP-LEFT block maps to, given the finger position.
+  // The floating piece is drawn at board scale, centred on the finger and lifted above it,
+  // so the drop lands exactly where the player sees the piece — not under their fingertip.
+  const cellForPiece = (idx: number, fx: number, fy: number): { r: number; c: number } | null => {
+    const boardEl = boardRef.current;
+    if (!boardEl) return null;
+    const origin = boardEl.querySelector('[data-pos="0-0"]') as HTMLElement | null;
+    const piece = tray[idx];
+    if (!origin || !piece) return null;
+    const o = origin.getBoundingClientRect();
+    const cell = o.width, pitch = cell + 3;
+    const b = shapeBounds(piece.shape);
+    const pieceW = b.cols * cell + (b.cols - 1) * 3;
+    const pieceH = b.rows * cell + (b.rows - 1) * 3;
+    const firstX = fx - pieceW / 2 + cell / 2;              // centre of the top-left block
+    const firstY = fy - BLOCK_DRAG_LIFT - pieceH + cell / 2;
+    const col = Math.floor((firstX - o.left) / pitch);
+    const row = Math.floor((firstY - o.top) / pitch);
     if (row < 0 || row > 7 || col < 0 || col > 7) return null;
     return { r: row, c: col };
   };
@@ -1753,27 +1778,31 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     mobileDragFrameRef.current = requestAnimationFrame(syncMobileDrag);
   };
 
+  // Unified pointer drag — identical for mouse, touch and pen (no fragile hover/pointer
+  // media-query branching). Pointer capture keeps every move/up bound to the grabbed piece.
   const beginMobileDrag = (idx: number, ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!coarsePointer) return;
+    if (over) return;
     ev.preventDefault();
     mobilePointerRef.current = ev.pointerId;
+    draggedRef.current = false;
     setSel(idx);
     setDragging(idx);
     setHover(null);
     hoverRef.current = null;
-    const cell = cellFromPoint(ev.clientX, ev.clientY);
+    const cell = cellForPiece(idx, ev.clientX, ev.clientY);
     scheduleMobileDrag({ idx, x: ev.clientX, y: ev.clientY, cell });
-    (ev.currentTarget as HTMLDivElement).setPointerCapture(ev.pointerId);
+    try { (ev.currentTarget as HTMLDivElement).setPointerCapture(ev.pointerId); } catch { /* capture unsupported */ }
   };
 
   const moveMobileDrag = (idx: number, ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!coarsePointer || mobilePointerRef.current !== ev.pointerId) return;
+    if (mobilePointerRef.current !== ev.pointerId) return;
     ev.preventDefault();
-    scheduleMobileDrag({ idx, x: ev.clientX, y: ev.clientY, cell: cellFromPoint(ev.clientX, ev.clientY) });
+    draggedRef.current = true;
+    scheduleMobileDrag({ idx, x: ev.clientX, y: ev.clientY, cell: cellForPiece(idx, ev.clientX, ev.clientY) });
   };
 
   const endMobileDrag = (idx: number, ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!coarsePointer || mobilePointerRef.current !== ev.pointerId) return;
+    if (mobilePointerRef.current !== ev.pointerId) return;
     ev.preventDefault();
     const next = mobileDragRef.current;
     if (next?.cell) place(next.cell.r, next.cell.c, idx);
@@ -1868,7 +1897,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 const bt = filled ? BLOCK_TYPES[v as number] : null;
                 return (
                   <button key={`${r}-${c}`} data-pos={`${r}-${c}`}
-                    onClick={() => { if (dragElRef.current) return; place(r, c); }}
+                    onClick={() => place(r, c)}
                     onMouseEnter={() => { if (dragging === null) setHover({ r, c }); }}
                     onMouseLeave={() => { if (dragging === null) setHover((h) => (h && h.r === r && h.c === c ? null : h)); }}
                     className="relative rounded-md flex items-center justify-center"
@@ -1889,7 +1918,7 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
               Хэсгээ сонгоод самбар дээр дарж байрлуул · Мөр/багана дүүргэвэл цэвэрлэгдэнэ
             </p>
 
-            {/* ── Tray (3 pieces) — static slot stays put, only the shape lifts & drags ── */}
+            {/* ── Tray (3 pieces) — press & drag a piece onto the board (mouse + touch) ── */}
             <div className="flex items-center justify-center gap-3 w-full" style={{ minHeight: 92 }}>
               {tray.map((p, i) => {
                 const b = shapeBounds(p.shape);
@@ -1898,106 +1927,67 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 const isDragging = dragging === i;
                 return (
                   <motion.div key={p.id}
-                    onClick={() => setSel(i)}
+                    onClick={() => { if (draggedRef.current) { draggedRef.current = false; return; } setSel(i); }}
+                    onPointerDown={(ev) => beginMobileDrag(i, ev)}
+                    onPointerMove={(ev) => moveMobileDrag(i, ev)}
+                    onPointerUp={(ev) => endMobileDrag(i, ev)}
+                    onPointerCancel={(ev) => endMobileDrag(i, ev)}
+                    onLostPointerCapture={(ev) => endMobileDrag(i, ev)}
                     className="rounded-2xl flex items-center justify-center relative"
                     style={{ minWidth: 84, minHeight: 84, background: on ? bt.bg : H.card,
-                      opacity: isDragging && coarsePointer ? 0.42 : 1,
+                      opacity: isDragging ? 0.4 : 1,
                       border: `2px solid ${on ? bt.color : H.border}`,
-                      boxShadow: on ? `0 6px 18px ${bt.color}33` : "none" }}
+                      boxShadow: on ? `0 6px 18px ${bt.color}33` : "none",
+                      touchAction: "none", cursor: "grab",
+                      WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
                     animate={{ scale: on && !isDragging ? 1.04 : 1 }}
                     transition={{ type: "spring", stiffness: 400, damping: 22 }}>
-                    {/* Draggable wrapper follows the finger; snaps back if not dropped on the board */}
-                    <motion.div
-                      drag={!coarsePointer}
-                      dragSnapToOrigin
-                      onDragStart={(e) => {
-                        if (coarsePointer) return;
-                        setSel(i); setDragging(i); setHover(null);
-                        hoverRef.current = null;
-                        dragElRef.current = (e.currentTarget as HTMLElement).querySelector("[data-shape]") as HTMLElement;
-                      }}
-                      onDrag={(_, info) => {
-                        if (coarsePointer) return;
-                        const cell = cellFromPoint(info.point.x, info.point.y);
-                        if (cell?.r === hoverRef.current?.r && cell?.c === hoverRef.current?.c) return;
-                        if (!cell && !hoverRef.current) return;
-                        hoverRef.current = cell;
-                        setHover(cell);
-                      }}
-                      onDragEnd={(_, info) => {
-                        if (coarsePointer) return;
-                        const cell = cellFromPoint(info.point.x, info.point.y);
-                        if (cell) place(cell.r, cell.c, i);
-                        setDragging(null); setHover(null);
-                        hoverRef.current = null;
-                        queueMicrotask(() => { dragElRef.current = null; });
-                      }}
-                      onPointerDown={(ev) => beginMobileDrag(i, ev)}
-                      onPointerMove={(ev) => moveMobileDrag(i, ev)}
-                      onPointerUp={(ev) => endMobileDrag(i, ev)}
-                      onPointerCancel={(ev) => endMobileDrag(i, ev)}
-                      onLostPointerCapture={(ev) => endMobileDrag(i, ev)}
-                      whileDrag={{ zIndex: 50, opacity: 0.85 }}
-                      style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content", margin: "auto", zIndex: isDragging ? 50 : 1 }}>
-                      {/* Inner content lifts above the finger & scales up while dragging so placement is visible */}
-                      <motion.div data-shape data-cols={b.cols} data-rows={b.rows}
-                        animate={{ y: isDragging ? (reduce ? -16 : -54) : 0, scale: isDragging ? (reduce ? 1.15 : 1.85) : 1 }}
-                        transition={{ type: "spring", stiffness: 500, damping: 32 }}
-                        style={{ display: "grid", gridTemplateColumns: `repeat(${b.cols}, 1fr)`, gap: 3,
-                          transformOrigin: reduce ? "center center" : "center bottom" }}>
-                        {Array.from({ length: b.rows * b.cols }).map((_, k) => {
-                          const rr = Math.floor(k / b.cols), cc = k % b.cols;
-                          const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
-                          return <div key={k} style={{ width: 15, height: 15, borderRadius: 4,
-                            background: fill ? bt.color : "transparent" }} />;
-                        })}
-                      </motion.div>
-                    </motion.div>
+                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${b.cols}, 1fr)`, gap: 3, pointerEvents: "none" }}>
+                      {Array.from({ length: b.rows * b.cols }).map((_, k) => {
+                        const rr = Math.floor(k / b.cols), cc = k % b.cols;
+                        const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
+                        return <div key={k} style={{ width: 15, height: 15, borderRadius: 4,
+                          background: fill ? bt.color : "transparent" }} />;
+                      })}
+                    </div>
                   </motion.div>
                 );
               })}
             </div>
 
-            {coarsePointer && mobileDrag && tray[mobileDrag.idx] ? (
-              <div className="fixed inset-0 z-[65] pointer-events-none">
-                <div
-                  className="absolute"
-                  style={{
-                    left: mobileDrag.x,
-                    top: mobileDrag.y,
-                    transform: "translate3d(-50%, -120%, 0)",
-                    width: 120,
-                    padding: 8,
-                  }}>
-                  <div
-                    className="rounded-2xl p-2"
-                    style={{
-                      background: "rgba(250,250,248,0.92)",
-                      border: `1px solid ${BLOCK_TYPES[tray[mobileDrag.idx].type].color}44`,
-                      boxShadow: "0 12px 28px rgba(14,92,55,0.18)",
-                    }}>
-                    {(() => {
-                      const p = tray[mobileDrag.idx];
-                      const b = shapeBounds(p.shape);
-                      const bt = BLOCK_TYPES[p.type];
+            {/* Floating piece — drawn at BOARD scale, above the finger, exactly where it will drop */}
+            {mobileDrag && tray[mobileDrag.idx] ? (() => {
+              const p = tray[mobileDrag.idx];
+              const b = shapeBounds(p.shape);
+              const bt = BLOCK_TYPES[p.type];
+              const origin = boardRef.current?.querySelector('[data-pos="0-0"]') as HTMLElement | null;
+              const cell = origin ? origin.getBoundingClientRect().width : 40;
+              const gap = 3;
+              const pieceW = b.cols * cell + (b.cols - 1) * gap;
+              const pieceH = b.rows * cell + (b.rows - 1) * gap;
+              const left = mobileDrag.x - pieceW / 2;
+              const top  = mobileDrag.y - BLOCK_DRAG_LIFT - pieceH;
+              return (
+                <div className="fixed inset-0 z-[66] pointer-events-none">
+                  <div style={{ position: "absolute", left, top, width: pieceW, height: pieceH,
+                    display: "grid", gridTemplateColumns: `repeat(${b.cols}, ${cell}px)`, gridAutoRows: `${cell}px`, gap }}>
+                    {Array.from({ length: b.rows * b.cols }).map((_, k) => {
+                      const rr = Math.floor(k / b.cols), cc = k % b.cols;
+                      const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
                       return (
-                        <motion.div
-                          data-shape
-                          animate={{ scale: 1.08, y: -2 }}
-                          transition={{ type: "spring", stiffness: 500, damping: 32 }}
-                          style={{ display: "grid", gridTemplateColumns: `repeat(${b.cols}, 1fr)`, gap: 3 }}>
-                          {Array.from({ length: b.rows * b.cols }).map((_, k) => {
-                            const rr = Math.floor(k / b.cols), cc = k % b.cols;
-                            const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
-                            return <div key={k} style={{ width: 16, height: 16, borderRadius: 4, background: fill ? bt.color : "transparent" }} />;
-                          })}
-                        </motion.div>
+                        <div key={k} style={{ borderRadius: Math.round(cell * 0.22),
+                          background: fill ? bt.bg : "transparent",
+                          border: fill ? `1.5px solid ${bt.color}` : "none",
+                          boxShadow: fill ? "0 8px 18px rgba(14,92,55,0.28)" : "none",
+                          display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          {fill && <bt.Icon size={Math.round(cell * 0.42)} color={bt.color} strokeWidth={2} />}
+                        </div>
                       );
-                    })()}
+                    })}
                   </div>
                 </div>
-              </div>
-            ) : null}
+              );
+            })() : null}
           </div>
 
           {/* ── Reward toast ── */}
@@ -2271,7 +2261,8 @@ function MergeBakeryGame({ open, onClose, onScore }: { open: boolean; onClose: (
                           queueMicrotask(() => { mergeDragRef.current = false; });
                         }}
                         whileDrag={{ scale: 1.3, zIndex: 10 }}
-                        style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content" }}>
+                        style={{ touchAction: "none", cursor: "grab", position: "absolute", inset: 0,
+                          display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <motion.div key={v} className="flex items-center justify-center"
                           initial={{ scale: reduce ? 1 : 1.35, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
@@ -2983,7 +2974,7 @@ function GameScreen({ user, leaderboard, onGameOver }: {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
+    <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
 
       {/* XP Header */}
       <motion.div className="px-5 pt-5 pb-5"
@@ -3346,7 +3337,7 @@ function ShopScreen({ onAddToCart }: { onAddToCart: (pid: number, qty?: number) 
   );
 
   return (
-    <div className="flex-1 overflow-y-auto" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
+    <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
       <motion.div className="px-5 pt-5 pb-4"
         style={{ background: `linear-gradient(160deg, ${H.secondary} 0%, ${H.primary} 100%)` }}
         initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.38, ease }}>
@@ -3488,7 +3479,7 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
   const progress = current === next ? 100 : ((pts - current.min) / (next.min - current.min)) * 100;
 
   return (
-    <div className="flex-1 overflow-y-auto" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
+    <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
       <motion.div className="px-5 pt-5 pb-3"
         style={{ background: `linear-gradient(160deg, ${H.secondary} 0%, ${H.primary} 100%)` }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.38 }}>
@@ -3724,7 +3715,7 @@ function ProfileScreen({ user }: { user?: User | null }) {
     else nav.push("settings");
   };
   return (
-    <div className="flex-1 overflow-y-auto" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
+    <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ background: H.bg, scrollbarWidth: "none", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 104px)" }}>
       <motion.div className="relative px-5 pt-5 pb-7"
         style={{ background: `linear-gradient(160deg, ${H.secondary} 0%, ${H.primary} 100%)` }}
         initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.42, ease }}>
@@ -3880,7 +3871,7 @@ function ScreenShell({ title, subtitle, onBack, right, children, pad = true }:
           {right}
         </div>
       </div>
-      <div className={`flex-1 overflow-y-auto ${pad ? "px-5 pt-5" : ""}`} style={{ scrollbarWidth: "none", paddingBottom: `calc(${SAFE_BOTTOM} + 8px)` }}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden ${pad ? "px-5 pt-5" : ""}`} style={{ scrollbarWidth: "none", paddingBottom: `calc(${SAFE_BOTTOM} + 8px)` }}>
         {children}
       </div>
     </>
@@ -4519,7 +4510,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
         </div>
       ) : (
         <div className="flex flex-col h-full">
-          <div className="flex-1 overflow-y-auto pb-4" style={{ scrollbarWidth: "none" }}>
+          <div className="flex-1 overflow-y-auto overflow-x-hidden pb-4" style={{ scrollbarWidth: "none" }}>
 
             {/* ── Cart Items ── */}
             <div className="px-5 pt-4 space-y-3">
@@ -4989,7 +4980,7 @@ function SuccessScreen({ onBack, order, earned }: { onBack: () => void; order: P
   const reduce = useReducedMotion();
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: H.bg, paddingTop: SAFE_TOP, paddingBottom: `calc(${SAFE_BOTTOM} + 8px)` }}>
-      <div className="flex-1 overflow-y-auto px-6 flex flex-col items-center justify-center text-center" style={{ scrollbarWidth: "none" }}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 flex flex-col items-center justify-center text-center" style={{ scrollbarWidth: "none" }}>
         <motion.div className="size-24 rounded-full flex items-center justify-center mb-4" style={{ background: `linear-gradient(145deg, #1A7A45, ${H.secondary})`, boxShadow: SHADOW_MODAL }}
           initial={{ scale: reduce ? 1 : 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 300, damping: 18 }}>
           <CheckCircle size={52} color="white" strokeWidth={2} />
