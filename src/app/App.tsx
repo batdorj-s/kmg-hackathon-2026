@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, createContext, useContext, Component } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import imgLogoWhite from "../imports/ConvenienceStoreApp/7b55f6acb463e894cdce1c9f059b2cb0057e78f8.png";
 import csSvg from "../imports/ConvenienceStoreApp/svg-9r7nhenckt";
@@ -1663,9 +1663,13 @@ const shapeBounds = (shape: number[][]) => ({
 
 function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: () => void; onScore?: (score: number, xp: number, upoints: number) => void }) {
   const reduce = useReducedMotion();
+  const coarsePointer = !canHover;
   const boardRef = useRef<HTMLDivElement>(null);
   const dragElRef = useRef<HTMLElement | null>(null);
   const hoverRef = useRef<{ r: number; c: number } | null>(null);
+  const mobilePointerRef = useRef<number | null>(null);
+  const mobileDragRef = useRef<{ idx: number; x: number; y: number; cell: { r: number; c: number } | null } | null>(null);
+  const mobileDragFrameRef = useRef<number | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   const [board, setBoard] = useState<(number | null)[][]>(emptyBoard);
   const [tray,  setTray]  = useState<BPiece[]>(() => [randPiece(), randPiece(), randPiece()]);
@@ -1676,8 +1680,13 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
   const [earned, setEarned] = useState<string[]>([]);
   const [toast, setToast]   = useState<{ label: string; Icon: typeof Zap } | null>(null);
   const [hover, setHover]   = useState<{ r: number; c: number } | null>(null);
+  const [mobileDrag, setMobileDrag] = useState<{ idx: number; x: number; y: number; cell: { r: number; c: number } | null } | null>(null);
   const [over,  setOver]    = useState(false);
   const [scored, setScored] = useState(false);
+
+  useEffect(() => () => {
+    if (mobileDragFrameRef.current !== null) cancelAnimationFrame(mobileDragFrameRef.current);
+  }, []);
 
   useEffect(() => { if (over && onScore && !scored) { setScored(true); onScore(score, Math.floor(score / 10), 0); } }, [over, score, onScore, scored]);
 
@@ -1726,6 +1735,56 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
     const row = Math.floor((y - rect.top) / (pitch + GAP));
     if (row < 0 || row > 7 || col < 0 || col > 7) return null;
     return { r: row, c: col };
+  };
+
+  const syncMobileDrag = () => {
+    mobileDragFrameRef.current = null;
+    const next = mobileDragRef.current;
+    if (!next) return;
+    setMobileDrag(next);
+    if (next.cell?.r === hoverRef.current?.r && next.cell?.c === hoverRef.current?.c) return;
+    hoverRef.current = next.cell;
+    setHover(next.cell);
+  };
+
+  const scheduleMobileDrag = (next: { idx: number; x: number; y: number; cell: { r: number; c: number } | null }) => {
+    mobileDragRef.current = next;
+    if (mobileDragFrameRef.current !== null) return;
+    mobileDragFrameRef.current = requestAnimationFrame(syncMobileDrag);
+  };
+
+  const beginMobileDrag = (idx: number, ev: ReactPointerEvent<HTMLDivElement>) => {
+    if (!coarsePointer) return;
+    ev.preventDefault();
+    mobilePointerRef.current = ev.pointerId;
+    setSel(idx);
+    setDragging(idx);
+    setHover(null);
+    hoverRef.current = null;
+    const cell = cellFromPoint(ev.clientX, ev.clientY);
+    scheduleMobileDrag({ idx, x: ev.clientX, y: ev.clientY, cell });
+    (ev.currentTarget as HTMLDivElement).setPointerCapture(ev.pointerId);
+  };
+
+  const moveMobileDrag = (idx: number, ev: ReactPointerEvent<HTMLDivElement>) => {
+    if (!coarsePointer || mobilePointerRef.current !== ev.pointerId) return;
+    ev.preventDefault();
+    scheduleMobileDrag({ idx, x: ev.clientX, y: ev.clientY, cell: cellFromPoint(ev.clientX, ev.clientY) });
+  };
+
+  const endMobileDrag = (idx: number, ev: ReactPointerEvent<HTMLDivElement>) => {
+    if (!coarsePointer || mobilePointerRef.current !== ev.pointerId) return;
+    ev.preventDefault();
+    const next = mobileDragRef.current;
+    if (next?.cell) place(next.cell.r, next.cell.c, idx);
+    if (mobileDragFrameRef.current !== null) cancelAnimationFrame(mobileDragFrameRef.current);
+    mobileDragFrameRef.current = null;
+    mobileDragRef.current = null;
+    mobilePointerRef.current = null;
+    setDragging(null);
+    setHover(null);
+    setMobileDrag(null);
+    hoverRef.current = null;
   };
 
   // Reward milestones — one toast per newly-crossed threshold
@@ -1842,20 +1901,23 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                     onClick={() => setSel(i)}
                     className="rounded-2xl flex items-center justify-center relative"
                     style={{ minWidth: 84, minHeight: 84, background: on ? bt.bg : H.card,
+                      opacity: isDragging && coarsePointer ? 0.42 : 1,
                       border: `2px solid ${on ? bt.color : H.border}`,
                       boxShadow: on ? `0 6px 18px ${bt.color}33` : "none" }}
                     animate={{ scale: on && !isDragging ? 1.04 : 1 }}
                     transition={{ type: "spring", stiffness: 400, damping: 22 }}>
                     {/* Draggable wrapper follows the finger; snaps back if not dropped on the board */}
                     <motion.div
-                      drag
+                      drag={!coarsePointer}
                       dragSnapToOrigin
                       onDragStart={(e) => {
+                        if (coarsePointer) return;
                         setSel(i); setDragging(i); setHover(null);
                         hoverRef.current = null;
                         dragElRef.current = (e.currentTarget as HTMLElement).querySelector("[data-shape]") as HTMLElement;
                       }}
                       onDrag={(_, info) => {
+                        if (coarsePointer) return;
                         const cell = cellFromPoint(info.point.x, info.point.y);
                         if (cell?.r === hoverRef.current?.r && cell?.c === hoverRef.current?.c) return;
                         if (!cell && !hoverRef.current) return;
@@ -1863,12 +1925,18 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                         setHover(cell);
                       }}
                       onDragEnd={(_, info) => {
+                        if (coarsePointer) return;
                         const cell = cellFromPoint(info.point.x, info.point.y);
                         if (cell) place(cell.r, cell.c, i);
                         setDragging(null); setHover(null);
                         hoverRef.current = null;
                         queueMicrotask(() => { dragElRef.current = null; });
                       }}
+                      onPointerDown={(ev) => beginMobileDrag(i, ev)}
+                      onPointerMove={(ev) => moveMobileDrag(i, ev)}
+                      onPointerUp={(ev) => endMobileDrag(i, ev)}
+                      onPointerCancel={(ev) => endMobileDrag(i, ev)}
+                      onLostPointerCapture={(ev) => endMobileDrag(i, ev)}
                       whileDrag={{ zIndex: 50, opacity: 0.85 }}
                       style={{ touchAction: "none", cursor: "grab", width: "fit-content", height: "fit-content", margin: "auto", zIndex: isDragging ? 50 : 1 }}>
                       {/* Inner content lifts above the finger & scales up while dragging so placement is visible */}
@@ -1889,6 +1957,47 @@ function BlockPuzzleGame({ open, onClose, onScore }: { open: boolean; onClose: (
                 );
               })}
             </div>
+
+            {coarsePointer && mobileDrag && tray[mobileDrag.idx] ? (
+              <div className="fixed inset-0 z-[65] pointer-events-none">
+                <div
+                  className="absolute"
+                  style={{
+                    left: mobileDrag.x,
+                    top: mobileDrag.y,
+                    transform: "translate3d(-50%, -120%, 0)",
+                    width: 120,
+                    padding: 8,
+                  }}>
+                  <div
+                    className="rounded-2xl p-2"
+                    style={{
+                      background: "rgba(250,250,248,0.92)",
+                      border: `1px solid ${BLOCK_TYPES[tray[mobileDrag.idx].type].color}44`,
+                      boxShadow: "0 12px 28px rgba(14,92,55,0.18)",
+                    }}>
+                    {(() => {
+                      const p = tray[mobileDrag.idx];
+                      const b = shapeBounds(p.shape);
+                      const bt = BLOCK_TYPES[p.type];
+                      return (
+                        <motion.div
+                          data-shape
+                          animate={{ scale: 1.08, y: -2 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                          style={{ display: "grid", gridTemplateColumns: `repeat(${b.cols}, 1fr)`, gap: 3 }}>
+                          {Array.from({ length: b.rows * b.cols }).map((_, k) => {
+                            const rr = Math.floor(k / b.cols), cc = k % b.cols;
+                            const fill = p.shape.some(([dr, dc]) => dr === rr && dc === cc);
+                            return <div key={k} style={{ width: 16, height: 16, borderRadius: 4, background: fill ? bt.color : "transparent" }} />;
+                          })}
+                        </motion.div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {/* ── Reward toast ── */}
