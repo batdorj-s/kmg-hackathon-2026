@@ -4228,7 +4228,7 @@ function CartScreen({ onBack }: { onBack: () => void }) {
     setDeletedItem(it);
     store.removeItem(it.pid);
     if (undoRef.current) clearTimeout(undoRef.current);
-    undoRef.current = window.setTimeout(() => setDeletedItem(null), 5000);
+    undoRef.current = window.setTimeout(() => setDeletedItem(null), 3000);
   };
 
   const handleUndo = () => {
@@ -4552,12 +4552,12 @@ function CartScreen({ onBack }: { onBack: () => void }) {
       {/* Undo snackbar */}
       <AnimatePresence>
         {deletedItem && (
-          <motion.div className="fixed left-0 right-0 z-50 flex items-center justify-between px-5 py-3"
-            style={{ bottom: `calc(80px + ${SAFE_BOTTOM})`, paddingBottom: 0, background: H.text, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
+          <motion.div className="fixed left-0 right-0 z-50 flex items-center justify-between mx-5 px-4 py-3"
+            style={{ bottom: `calc(100px + ${SAFE_BOTTOM})`, borderRadius: 16, background: H.text }}
             initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}>
             <span className="text-[13px] text-white" style={{ fontFamily: fontSans }}>Бүтээгдэхүүн устгагдсан</span>
-            <motion.button className="text-[13px] font-bold" style={{ color: H.gold, fontFamily: fontDisplay }} onClick={handleUndo} whileTap={{ scale: 0.92 }}>Буцаах</motion.button>
+            <motion.button className="text-[13px] font-bold flex-shrink-0 ml-3" style={{ color: H.gold, fontFamily: fontDisplay }} onClick={handleUndo} whileTap={{ scale: 0.92 }}>Буцаах</motion.button>
           </motion.div>
         )}
       </AnimatePresence>
