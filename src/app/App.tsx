@@ -82,17 +82,20 @@ type StoreState = {
   spinDate: string | null; spinsUsed: number;
   orderNotifs: OrderNotif[]; nextNotifId: number;
   savedItems: CartItem[];
+  streak: number; lastPlayed: string | null; bestStreak: number;   // daily-game streak (Duolingo-style)
 };
 const STORE_KEY = "tlj-store-v3";   // bumped: cart is now line items + placed orders
 const SPINS_PER_DAY = 3;
 const EARN_RATE = 100;              // 1 Upoint per ₮100 spent
 const todayStr = () => new Date().toISOString().slice(0, 10);
+const yesterdayStr = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
 const DEFAULT_STORE: StoreState = {
   points: 2840, xp: 1240, cart: [], orders: [],
   favorites: [], usedCoupons: [3], redeemed: [], notifRead: [3, 4],
   spinDate: null, spinsUsed: 0,
   orderNotifs: [], nextNotifId: 5,
   savedItems: [],
+  streak: 0, lastPlayed: null, bestStreak: 0,
 };
 const loadStore = (): StoreState => {
   try {
@@ -113,6 +116,9 @@ const earnedFor    = (total: number) => Math.round(total / EARN_RATE);
 
 type StoreApi = StoreState & {
   spinsLeft: number; cartCount: number; cartTotal: number;
+  activeStreak: number;   // 0 if the streak has lapsed (missed a day)
+  playedToday: boolean;
+  recordGamePlay: () => void;   // call when a game is completed → advances the daily streak
   addReward: (r: { xp?: number; points?: number }) => void;
   addToCart: (pid: number, qty?: number, temp?: "hot" | "cool") => void;
   setQty: (pid: number, qty: number) => void;
@@ -179,8 +185,19 @@ function StoreProvider({ children }: { children: React.ReactNode }) {
   const fresh   = s.spinDate === todayStr() ? s.spinsUsed : 0;   // reset spins each calendar day
   const spinsLeft = Math.max(0, SPINS_PER_DAY - fresh);
 
+  // The stored streak only counts if the last play was today or yesterday; otherwise it lapsed.
+  const activeStreak = (s.lastPlayed === todayStr() || s.lastPlayed === yesterdayStr()) ? s.streak : 0;
+  const playedToday = s.lastPlayed === todayStr();
+
   const api: StoreApi = {
     ...s, spinsLeft, cartCount: cartCountOf(s.cart), cartTotal: cartSubtotal(s.cart),
+    activeStreak, playedToday,
+    recordGamePlay: () => setS((p) => {
+      const today = todayStr();
+      if (p.lastPlayed === today) return p;                     // already counted today
+      const next = p.lastPlayed === yesterdayStr() ? p.streak + 1 : 1;   // +1 if consecutive, else restart
+      return { ...p, streak: next, lastPlayed: today, bestStreak: Math.max(p.bestStreak, next) };
+    }),
     addReward:  (r) => setS((p) => ({ ...p, xp: p.xp + (r.xp || 0), points: p.points + (r.points || 0) })),
     addToCart:  (pid, qty = 1, temp) => setS((p) => {
       const i = p.cart.findIndex((c) => c.pid === pid);
@@ -2964,6 +2981,21 @@ function GameScreen({ user, leaderboard, onGameOver }: {
   const level = Math.floor(xpTotal / 100) + 1;
   const title = level >= 30 ? "Бялуу Хаан" : level >= 20 ? "Бялуу Мастер" : level >= 10 ? "Мэргэжилтэн" : level >= 5 ? "Дуртай тоглогч" : "Эхлэгч";
 
+  // ── Daily streak + challenge ──
+  const streak = store.activeStreak;
+  const playedToday = store.playedToday;
+  const daySeed = parseInt(todayStr().replace(/-/g, ""), 10);
+  const dailyGame = GAMES[daySeed % GAMES.length];   // one featured game per calendar day
+  const streakDates = new Set<string>();
+  if (streak > 0 && store.lastPlayed) {
+    const base = new Date(store.lastPlayed);
+    for (let i = 0; i < streak; i++) { const d = new Date(base); d.setDate(base.getDate() - i); streakDates.add(d.toISOString().slice(0, 10)); }
+  }
+  const _now = new Date();
+  const _dow = (_now.getDay() + 6) % 7;   // 0 = Monday
+  const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(_now); d.setDate(_now.getDate() - _dow + i); return d; });
+  const WD = ["Да", "Мя", "Лх", "Пү", "Ба", "Бя", "Ня"];
+
   const spinWheel = () => {
     if (wheelSpin || !store.useSpin()) return;   // useSpin reserves today's spin (false if none left)
     setLastPrize(null);
@@ -3009,8 +3041,85 @@ function GameScreen({ user, leaderboard, onGameOver }: {
         </div>
       </motion.div>
 
+      {/* ── Daily Streak (Duolingo-style) ── */}
+      <motion.div className="px-5 -mt-3 mb-4"
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08, ease }}>
+        <div className="rounded-3xl p-4" style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_FLOAT }}>
+          <div className="flex items-center gap-3.5">
+            <motion.div className="flex-shrink-0"
+              animate={streak > 0 ? { scale: [1, 1.08, 1] } : {}}
+              transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}>
+              <div className="size-14 rounded-2xl flex items-center justify-center"
+                style={{ background: streak > 0 ? "linear-gradient(160deg, #FF9F43, #FF6B35)" : "rgba(0,0,0,0.05)" }}>
+                <Flame size={28} color={streak > 0 ? "#fff" : H.muted} fill={streak > 0 ? "#fff" : "none"} strokeWidth={2} />
+              </div>
+            </motion.div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[26px] font-bold leading-none" style={{ fontFamily: fontDisplay, color: streak > 0 ? "#FF6B35" : H.text, fontVariantNumeric: "tabular-nums" }}>{streak}</span>
+                <span className="text-[13px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>өдрийн цуврал</span>
+              </div>
+              <p className="text-[11px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>
+                {playedToday ? "Өнөөдрийн цуврал биеллээ 🎉"
+                  : streak > 0 ? "Өнөөдөр тогло — цувралаа бүү тасал!"
+                  : store.bestStreak > 0 ? "Цувралаа алдлаа. Дахин эхлүүлье!"
+                  : "Өнөөдөр тоглоод цувралаа эхлүүл!"}
+              </p>
+            </div>
+            {store.bestStreak > 0 && (
+              <div className="text-right flex-shrink-0">
+                <p className="text-[9px] uppercase tracking-wide" style={{ fontFamily: fontSans, color: H.muted }}>Рекорд</p>
+                <p className="text-[15px] font-bold" style={{ fontFamily: fontDisplay, color: H.text, fontVariantNumeric: "tabular-nums" }}>{store.bestStreak}</p>
+              </div>
+            )}
+          </div>
+          {/* Week strip */}
+          <div className="flex items-center justify-between mt-3.5">
+            {weekDays.map((d, i) => {
+              const iso = d.toISOString().slice(0, 10);
+              const done = streakDates.has(iso);
+              const isToday = iso === todayStr();
+              const future = iso > todayStr();
+              return (
+                <div key={i} className="flex flex-col items-center gap-1.5">
+                  <span className="text-[9px] font-semibold" style={{ fontFamily: fontSans, color: isToday ? H.primary : H.muted }}>{WD[i]}</span>
+                  <div className="size-7 rounded-full flex items-center justify-center"
+                    style={{ background: done ? "linear-gradient(160deg, #FF9F43, #FF6B35)" : "rgba(0,0,0,0.045)",
+                      border: isToday && !done ? `1.5px solid ${H.primary}` : "none", opacity: future ? 0.4 : 1 }}>
+                    {done
+                      ? <Flame size={13} color="#fff" fill="#fff" />
+                      : <span className="text-[11px] leading-none" style={{ color: H.muted }}>·</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ── Daily Challenge ── */}
+      <motion.div className="px-5 mb-5"
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.14, ease }}>
+        <div className="rounded-3xl p-4 flex items-center gap-3.5"
+          style={{ background: `linear-gradient(135deg, ${dailyGame.color} 0%, ${H.card} 90%)`, border: `1px solid ${H.border}` }}>
+          <div className="size-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,255,255,0.7)" }}>
+            <dailyGame.Icon size={22} color={H.primary} strokeWidth={1.8} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[9px] font-bold uppercase tracking-wide" style={{ fontFamily: fontSans, color: "#B8860B" }}>Өдрийн даалгавар</p>
+            <p className="text-[14px] font-bold leading-tight" style={{ fontFamily: fontDisplay, color: H.text }}>{dailyGame.title}</p>
+            <p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>{dailyGame.sub} · {dailyGame.reward}</p>
+          </div>
+          <motion.button onClick={() => setActiveGame(dailyGame.id)} whileTap={{ scale: 0.94 }}
+            className="px-4 h-9 rounded-full flex items-center gap-1 flex-shrink-0 text-white text-[12px] font-bold"
+            style={{ background: playedToday ? H.primary : `linear-gradient(135deg, #14764A, ${H.primary})`, fontFamily: fontDisplay }}>
+            {playedToday ? <><CheckCircle size={13} strokeWidth={2.5} /> Дахин</> : "Тоглох"}
+          </motion.button>
+        </div>
+      </motion.div>
+
       {/* Spin Wheel */}
-      <motion.div className="px-5 -mt-3 mb-5"
+      <motion.div className="px-5 mb-5"
         initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.46, delay: 0.12, ease }}>
         <div className="rounded-3xl p-5 flex flex-col items-center"
           style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_FLOAT }}>
@@ -3718,6 +3827,9 @@ function ProfileScreen({ user }: { user?: User | null }) {
   const store = useStore();
   const nav = useNav();
   const pts = store.points;
+  // The "7 days in a row" badge unlocks from the real game streak.
+  const achievements = ACHIEVEMENTS.map((a) =>
+    /7 хоног|дараалан/.test(a.label) ? { ...a, done: store.bestStreak >= 7 } : a);
   const menuNav = (label: string) => {
     if (/захиалг/i.test(label)) nav.push("orders");
     else if (/Upoint|лояалти/i.test(label)) nav.push("points");
@@ -3770,11 +3882,11 @@ function ProfileScreen({ user }: { user?: User | null }) {
             <h3 className="text-[15px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>Амжилтууд</h3>
           </div>
           <span className="text-[12px] font-medium" style={{ color: H.primary, fontFamily: fontSans }}>
-            {ACHIEVEMENTS.filter((a) => a.done).length}/{ACHIEVEMENTS.length}
+            {achievements.filter((a) => a.done).length}/{achievements.length}
           </span>
         </motion.div>
         <div className="grid grid-cols-3 gap-2.5">
-          {ACHIEVEMENTS.map((a, i) => (
+          {achievements.map((a, i) => (
             <motion.button key={i} variants={scaleIn} onClick={() => nav.push("achievement", a)}
               className="flex flex-col items-center gap-1.5 rounded-2xl py-3"
               style={{ background: a.done ? "rgba(14,92,55,0.07)" : H.card, border: `1px solid ${a.done ? "rgba(14,92,55,0.12)" : H.border}` }}
@@ -5101,6 +5213,7 @@ function AppInner() {
 
   const handleGameOver = async (gameType: "block" | "merge" | "quiz" | "connect", score: number, xp: number, upoints: number) => {
     store.addReward({ xp, points: upoints });   // client wallet — always accrues + persists locally
+    store.recordGamePlay();                      // advance the daily streak (Duolingo-style)
     if (!user) return;                           // backend sync only when a Supabase user exists
     await saveGameScore(user.id, gameType, score);
     await addXp(user.id, xp, upoints);
