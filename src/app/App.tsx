@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext, Component, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext, Component, lazy, Suspense } from "react";
 import type { ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import imgLogoWhite from "../imports/ConvenienceStoreApp/7b55f6acb463e894cdce1c9f059b2cb0057e78f8.png";
@@ -2964,9 +2964,11 @@ function ConnectionsGame({ open, onClose, onScore }: { open: boolean; onClose: (
 }
 
 // ─── GAME SCREEN ──────────────────────────────────────────────────────────────
-function GameScreen({ user, leaderboard, onGameOver }: {
+function GameScreen({ user, leaderboard, leaderboardError, onRetryLeaderboard, onGameOver }: {
   user?: ApiUser | null;
   leaderboard: ApiUser[];
+  leaderboardError?: boolean;
+  onRetryLeaderboard?: () => void;
   onGameOver: (gameType: "block" | "merge" | "quiz" | "connect", score: number, xp: number, upoints: number) => void;
 }) {
   const reduce = useReducedMotion();
@@ -3368,6 +3370,20 @@ function GameScreen({ user, leaderboard, onGameOver }: {
             <h3 className="text-[15px] font-bold text-white" style={{ fontFamily: fontDisplay }}>Тэргүүлэгчид</h3>
           </div>
 
+          {/* Error banner */}
+          {leaderboardError && (
+            <motion.div variants={staggerItem} className="flex flex-col items-center gap-2 pb-4 px-4">
+              <p className="text-[13px] text-white/70 text-center" style={{ fontFamily: fontSans }}>
+                Leaderboard ачааллаж чадсангүй
+              </p>
+              <button onClick={onRetryLeaderboard}
+                className="px-4 py-1.5 rounded-full text-[12px] font-bold"
+                style={{ background: "rgba(255,255,255,0.2)", color: "white", fontFamily: fontSans }}>
+                Дахин оролдох
+              </button>
+            </motion.div>
+          )}
+
           {/* Podium: 2nd | 1st | 3rd */}
           <div className="flex items-end justify-center gap-4 px-4">
             {/* 2nd place */}
@@ -3437,7 +3453,18 @@ function GameScreen({ user, leaderboard, onGameOver }: {
           </div>
         </motion.div>
 
+        {/* Empty state when no data and no error */}
+        {!leaderboardError && leaderboard.length === 0 && (
+          <div className="mx-5 rounded-3xl overflow-hidden py-6 text-center"
+            style={{ background: H.card, border: `1px solid ${H.border}` }}>
+            <p className="text-[13px]" style={{ fontFamily: fontSans, color: H.muted }}>
+              Одоогоор оролцогч байхгүй байна
+            </p>
+          </div>
+        )}
+
         {/* Ranked list 4–10 */}
+        {leaderboard.length > 0 && (
         <div className="mx-5 rounded-3xl overflow-hidden" style={{ background: H.card, border: `1px solid ${H.border}` }}>
           {leaderboard.slice(3).map((l, i) => (
             <motion.div key={l.id} variants={staggerItem}
@@ -3474,6 +3501,7 @@ function GameScreen({ user, leaderboard, onGameOver }: {
             </motion.div>
           ))}
         </div>
+        )}
       </motion.div>
     </div>
   );
@@ -5216,6 +5244,7 @@ function AppInner() {
   const [missions,  setMissions]  = useState(MISSIONS);
   const [user, setUser]             = useState<ApiUser | null>(null);
   const [leaderboard, setLeaderboard] = useState<ApiUser[]>([]);
+  const [leaderboardError, setLeaderboardError] = useState(false);
   const [loading, setLoading]       = useState(true);
   const [guest, setGuest]           = useState(() => { try { return localStorage.getItem("tlj_guest") === "1"; } catch { return false; } });
 
@@ -5227,18 +5256,28 @@ function AppInner() {
     );
   }, []);
 
+  const fetchLeaderboard = useCallback(() => {
+    setLeaderboardError(false);
+    getLeaderboard().then((data) => {
+      setLeaderboard(data);
+    }).catch((err) => {
+      console.error("leaderboard fetch failed:", err);
+      setLeaderboardError(true);
+    });
+  }, []);
+
   useEffect(() => {
-    getLeaderboard().then(setLeaderboard);
+    fetchLeaderboard();
     const sub = subscribeLeaderboard(setLeaderboard);
     return () => sub.unsubscribe();
-  }, []);
+  }, [fetchLeaderboard]);
 
   const handleUserCreated = async (name: string) => {
     try {
       const u = await createUser(name);
       localStorage.setItem("tlj_user_id", String(u.id));
       setUser(u);
-      getLeaderboard().then(setLeaderboard);
+      fetchLeaderboard();
     } catch {
       // Backend unavailable (or misconfigured) → never trap the user on the welcome screen;
       // continue locally as a guest so the app is always usable.
@@ -5295,7 +5334,7 @@ function AppInner() {
               display: "flex", flexDirection: "column", overflow: "hidden",
             }}>
             {tab === "home"    && <HomeScreen    onNav={handleNav} onAddToCart={addToCart} missions={missions} onComplete={completeM} user={user} />}
-            {tab === "game"    && <GameScreen    user={user} leaderboard={leaderboard} onGameOver={handleGameOver} />}
+            {tab === "game"    && <GameScreen    user={user} leaderboard={leaderboard} leaderboardError={leaderboardError} onRetryLeaderboard={fetchLeaderboard} onGameOver={handleGameOver} />}
             {tab === "shop"    && <ShopScreen    onAddToCart={addToCart} />}
             {tab === "rewards" && <RewardsScreen user={user} />}
             {tab === "profile" && <ProfileScreen user={user} />}

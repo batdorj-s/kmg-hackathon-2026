@@ -40,7 +40,10 @@ export async function getLeaderboard(): Promise<User[]> {
     .select("*")
     .order("xp", { ascending: false })
     .limit(10);
-  if (error) return [];
+  if (error) {
+    console.error("getLeaderboard error:", error);
+    return [];
+  }
   return data ?? [];
 }
 
