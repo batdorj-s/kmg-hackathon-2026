@@ -2977,6 +2977,12 @@ function GameScreen({ user, leaderboard, onGameOver }: {
   const [lastPrize,  setLastPrize]  = useState<string | null>(null);
   const [scratched,  setScratched]  = useState(false);
   const [activeGame, setActiveGame] = useState<string | null>(null);
+  // Opening a real game counts toward today's streak immediately (not only on game-over),
+  // so the flame lights up the moment you start playing.
+  const openGame = (id: string) => {
+    setActiveGame(id);
+    if (["block", "merge", "quiz", "connect"].includes(id)) store.recordGamePlay();
+  };
   const xpTotal = store.xp, xpMax = 2000;
   const level = Math.floor(xpTotal / 100) + 1;
   const title = level >= 30 ? "Бялуу Хаан" : level >= 20 ? "Бялуу Мастер" : level >= 10 ? "Мэргэжилтэн" : level >= 5 ? "Дуртай тоглогч" : "Эхлэгч";
@@ -3140,7 +3146,7 @@ function GameScreen({ user, leaderboard, onGameOver }: {
             <p className="text-[14px] font-bold leading-tight" style={{ fontFamily: fontDisplay, color: H.text }}>{dailyGame.title}</p>
             <p className="text-[11px]" style={{ fontFamily: fontSans, color: H.muted }}>{dailyGame.sub} · {dailyGame.reward}</p>
           </div>
-          <motion.button onClick={() => setActiveGame(dailyGame.id)} whileTap={{ scale: 0.94 }}
+          <motion.button onClick={() => openGame(dailyGame.id)} whileTap={{ scale: 0.94 }}
             className="px-4 h-9 rounded-full flex items-center gap-1 flex-shrink-0 text-white text-[12px] font-bold"
             style={{ background: playedToday ? H.primary : `linear-gradient(135deg, #14764A, ${H.primary})`, fontFamily: fontDisplay }}>
             {playedToday ? <><CheckCircle size={13} strokeWidth={2.5} /> Дахин</> : "Тоглох"}
@@ -3255,7 +3261,7 @@ function GameScreen({ user, leaderboard, onGameOver }: {
         <motion.h3 variants={fadeUp} className="text-[15px] font-bold mb-3" style={{ fontFamily: fontDisplay, color: H.text }}>Мини Тоглоомууд</motion.h3>
         <div className="grid grid-cols-2 gap-3">
           {GAMES.map((g) => (
-            <motion.button key={g.id} onClick={() => setActiveGame(g.id)}
+            <motion.button key={g.id} onClick={() => openGame(g.id)}
               variants={staggerItem}
               className="rounded-2xl p-4 text-left flex flex-col gap-2.5"
               style={{ background: g.color, border: `1px solid ${H.border}` }}
