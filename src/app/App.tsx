@@ -3041,22 +3041,44 @@ function GameScreen({ user, leaderboard, onGameOver }: {
         </div>
       </motion.div>
 
-      {/* ── Daily Streak (Duolingo-style) ── */}
+      {/* ── Daily Streak (Duolingo-style, animated) ── */}
       <motion.div className="px-5 -mt-3 mb-4"
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08, ease }}>
-        <div className="rounded-3xl p-4" style={{ background: H.card, border: `1px solid ${H.border}`, boxShadow: SHADOW_FLOAT }}>
+        initial={{ opacity: 0, y: reduce ? 0 : 12, scale: reduce ? 1 : 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.42, delay: 0.08, ease: easeOut }}>
+        <div className="rounded-3xl p-4 relative overflow-hidden"
+          style={{
+            // Warm ambient tint bleeds from the flame when the streak is alive.
+            background: streak > 0
+              ? "radial-gradient(130% 140% at 12% 0%, rgba(255,107,53,0.11) 0%, rgba(255,159,67,0.04) 34%, " + H.card + " 62%)"
+              : H.card,
+            border: `1px solid ${streak > 0 ? "rgba(255,107,53,0.18)" : H.border}`,
+            boxShadow: SHADOW_FLOAT,
+          }}>
           <div className="flex items-center gap-3.5">
-            <motion.div className="flex-shrink-0"
-              animate={streak > 0 ? { scale: [1, 1.08, 1] } : {}}
-              transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}>
-              <div className="size-14 rounded-2xl flex items-center justify-center"
-                style={{ background: streak > 0 ? "linear-gradient(160deg, #FF9F43, #FF6B35)" : "rgba(0,0,0,0.05)" }}>
+            {/* Flame with pulsing glow + organic flicker */}
+            <div className="relative flex-shrink-0" style={{ width: 56, height: 56 }}>
+              {streak > 0 && !reduce && (
+                <motion.div className="absolute inset-0 rounded-full pointer-events-none"
+                  style={{ background: "radial-gradient(circle, rgba(255,107,53,0.6) 0%, rgba(255,107,53,0) 70%)", filter: "blur(6px)" }}
+                  animate={{ scale: [1, 1.35, 1], opacity: [0.45, 0.85, 0.45] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }} />
+              )}
+              <motion.div className="absolute inset-0 rounded-2xl flex items-center justify-center"
+                style={{
+                  background: streak > 0 ? "linear-gradient(158deg, #FFB443 0%, #FF5A2C 100%)" : "rgba(0,0,0,0.05)",
+                  boxShadow: streak > 0 ? "0 6px 16px rgba(255,90,44,0.38)" : "none",
+                }}
+                animate={streak > 0 && !reduce ? { scale: [1, 1.06, 0.98, 1.04, 1], rotate: [0, -3, 2, -2, 0] } : {}}
+                transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}>
                 <Flame size={28} color={streak > 0 ? "#fff" : H.muted} fill={streak > 0 ? "#fff" : "none"} strokeWidth={2} />
-              </div>
-            </motion.div>
+              </motion.div>
+            </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-1.5">
-                <span className="text-[26px] font-bold leading-none" style={{ fontFamily: fontDisplay, color: streak > 0 ? "#FF6B35" : H.text, fontVariantNumeric: "tabular-nums" }}>{streak}</span>
+                <span className="text-[27px] font-bold leading-none" style={{ fontFamily: fontDisplay, color: streak > 0 ? "#FF5A2C" : H.text, fontVariantNumeric: "tabular-nums" }}>
+                  <CountUp to={streak} />
+                </span>
                 <span className="text-[13px] font-semibold" style={{ fontFamily: fontDisplay, color: H.text }}>өдрийн цуврал</span>
               </div>
               <p className="text-[11px] mt-0.5" style={{ fontFamily: fontSans, color: H.muted }}>
@@ -3073,27 +3095,35 @@ function GameScreen({ user, leaderboard, onGameOver }: {
               </div>
             )}
           </div>
-          {/* Week strip */}
-          <div className="flex items-center justify-between mt-3.5">
+          {/* Week strip — dots pop in with a short spring stagger */}
+          <motion.div className="flex items-center justify-between mt-3.5"
+            initial="hidden" animate="show"
+            variants={{ show: { transition: { staggerChildren: reduce ? 0 : 0.05, delayChildren: 0.22 } } }}>
             {weekDays.map((d, i) => {
               const iso = d.toISOString().slice(0, 10);
               const done = streakDates.has(iso);
               const isToday = iso === todayStr();
               const future = iso > todayStr();
               return (
-                <div key={i} className="flex flex-col items-center gap-1.5">
-                  <span className="text-[9px] font-semibold" style={{ fontFamily: fontSans, color: isToday ? H.primary : H.muted }}>{WD[i]}</span>
+                <motion.div key={i} className="flex flex-col items-center gap-1.5"
+                  variants={{ hidden: { opacity: 0, scale: reduce ? 1 : 0.5 }, show: { opacity: 1, scale: 1 } }}
+                  transition={{ type: "spring", stiffness: 520, damping: 20 }}>
+                  <span className="text-[9px] font-semibold" style={{ fontFamily: fontSans, color: isToday ? "#FF5A2C" : H.muted }}>{WD[i]}</span>
                   <div className="size-7 rounded-full flex items-center justify-center"
-                    style={{ background: done ? "linear-gradient(160deg, #FF9F43, #FF6B35)" : "rgba(0,0,0,0.045)",
-                      border: isToday && !done ? `1.5px solid ${H.primary}` : "none", opacity: future ? 0.4 : 1 }}>
+                    style={{
+                      background: done ? "linear-gradient(158deg, #FFB443, #FF5A2C)" : "rgba(0,0,0,0.045)",
+                      border: isToday && !done ? "1.5px solid #FF5A2C" : "none",
+                      boxShadow: done ? "0 3px 9px rgba(255,90,44,0.4)" : "none",
+                      opacity: future ? 0.4 : 1,
+                    }}>
                     {done
                       ? <Flame size={13} color="#fff" fill="#fff" />
                       : <span className="text-[11px] leading-none" style={{ color: H.muted }}>·</span>}
                   </div>
-                </div>
+                </motion.div>
               );
             })}
-          </div>
+          </motion.div>
         </div>
       </motion.div>
 
