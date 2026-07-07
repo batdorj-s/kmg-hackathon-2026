@@ -18,7 +18,7 @@ import {
   Target, Cake, ArrowRight, Minus,
   Croissant, Cookie, Donut, LayoutGrid, X, Wheat, Trash2,
   Brain, Share2, HelpCircle, Shuffle, Lightbulb, Dot,
-  LogOut, ChevronLeft, Truck,
+  LogOut, ChevronLeft, Truck, Smartphone, Send,
 } from "lucide-react";
 import type { User as ApiUser } from "../lib/api";
 import { createUser, getLeaderboard, saveGameScore, addXp, updateLastActive, subscribeLeaderboard } from "../lib/api";
@@ -83,6 +83,7 @@ type StoreState = {
   orderNotifs: OrderNotif[]; nextNotifId: number;
   savedItems: CartItem[];
   streak: number; lastPlayed: string | null; bestStreak: number;   // daily-game streak (Duolingo-style)
+  referrals: { phone: string; date: string; rewarded: boolean }[];
 };
 const STORE_KEY = "tlj-store-v3";   // bumped: cart is now line items + placed orders
 const SPINS_PER_DAY = 3;
@@ -96,6 +97,7 @@ const DEFAULT_STORE: StoreState = {
   orderNotifs: [], nextNotifId: 5,
   savedItems: [],
   streak: 0, lastPlayed: null, bestStreak: 0,
+  referrals: [],
 };
 const loadStore = (): StoreState => {
   try {
@@ -134,6 +136,7 @@ type StoreApi = StoreState & {
   redeemReward: (id: number, cost: number) => boolean;   // spend points → false if insufficient
   markAllRead: (ids: number[]) => void;
   useSpin: () => boolean;   // returns false if no spins left today
+  referFriend: (phone: string) => boolean;
 };
 const StoreCtx = createContext<StoreApi | null>(null);
 const useStore = (): StoreApi => {
@@ -265,6 +268,16 @@ function StoreProvider({ children }: { children: React.ReactNode }) {
       const usedToday = s.spinDate === todayStr() ? s.spinsUsed : 0;
       if (usedToday >= SPINS_PER_DAY) return false;
       setS((p) => ({ ...p, spinDate: todayStr(), spinsUsed: (p.spinDate === todayStr() ? p.spinsUsed : 0) + 1 }));
+      return true;
+    },
+    referFriend: (phone) => {
+      if (s.referrals.some((r) => r.phone === phone)) return false;
+      setS((p) => ({
+        ...p,
+        referrals: [...p.referrals, { phone, date: todayStr(), rewarded: true }],
+        points: p.points + 50,
+        xp: p.xp + 30,
+      }));
       return true;
     },
   };
@@ -3644,6 +3657,8 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
   const pts = store.points;
   const [redeemT, setRedeemT] = useState<typeof REWARDS[0] | null>(null);
   const [redeemState, setRedeemState] = useState<"confirm" | "success" | "error">("confirm");
+  const [phone, setPhone] = useState("");
+  const [msg, setMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const doRedeem = () => {
     if (!redeemT) return;
     const ok = store.redeemReward(redeemT.id, redeemT.cost);
@@ -3771,6 +3786,78 @@ function RewardsScreen({ user }: { user?: ApiUser | null }) {
             );
           })}
         </div>
+      </motion.div>
+
+      {/* Найзаа урих */}
+      <motion.div className="px-5 mb-5" variants={staggerContainer} initial="hidden" animate="show">
+        <motion.div variants={fadeUp} className="flex items-center gap-2 mb-3">
+          <Smartphone size={16} color={H.primary} />
+          <h3 className="text-[15px] font-bold" style={{ fontFamily: fontDisplay, color: H.text }}>Найзаа урих</h3>
+        </motion.div>
+        <motion.div variants={staggerItem} className="rounded-2xl p-4"
+          style={{ background: `linear-gradient(135deg, ${H.primary}10, ${H.secondary}08)`, border: `1px solid ${H.primary}20` }}>
+          <p className="text-[12px] mb-3" style={{ fontFamily: fontSans, color: H.muted }}>
+            Найзаа урьж <b style={{ color: H.primary }}>50 оноо</b> аваарай!
+          </p>
+          <div className="flex gap-2">
+            <div className="flex-1 flex items-center gap-1 px-3 py-2.5 rounded-xl"
+              style={{ background: H.card, border: `1px solid ${H.border}` }}>
+              <span className="text-[13px]" style={{ color: H.muted, fontFamily: fontSans }}>+976</span>
+              <input
+                type="tel" maxLength={8}
+                value={phone}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D/g, "").slice(0, 8);
+                  setPhone(v);
+                  setMsg(null);
+                }}
+                placeholder="Утасны дугаар"
+                className="flex-1 bg-transparent outline-none text-[13px]"
+                style={{ fontFamily: fontSans, color: H.text }}
+              />
+            </div>
+            <motion.button
+              onClick={() => {
+                const full = "+976" + phone;
+                if (store.referrals.some((r) => r.phone === full)) {
+                  setMsg({ text: "Энэ дугаар бүртгэгдсэн байна", type: "error" });
+                  return;
+                }
+                const ok = store.referFriend(full);
+                if (ok) {
+                  setPhone("");
+                  setMsg({ text: "Амжилттай урилаа! +50 оноо", type: "success" });
+                  setTimeout(() => setMsg(null), 3000);
+                }
+              }}
+              disabled={phone.length < 8}
+              className="px-4 py-2.5 rounded-xl text-[12px] font-bold flex items-center gap-1"
+              style={{
+                background: phone.length >= 8 ? `linear-gradient(135deg, ${H.secondary}, ${H.primary})` : H.accent,
+                color: phone.length >= 8 ? "white" : H.muted,
+                fontFamily: fontSans,
+              }}
+              whileTap={phone.length >= 8 ? { scale: 0.94 } : {}}>
+              <Send size={13} />
+              Урих
+            </motion.button>
+          </div>
+          {msg && (
+            <motion.p className="text-[11px] mt-2"
+              initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+              style={{ fontFamily: fontSans, color: msg.type === "success" ? H.primary : H.pink }}>
+              {msg.text}
+            </motion.p>
+          )}
+          {store.referrals.length > 0 && (
+            <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: `1px solid ${H.border}` }}>
+              <User size={11} color={H.muted} />
+              <span className="text-[10px]" style={{ fontFamily: fontSans, color: H.muted }}>
+                Та нийт <b style={{ color: H.primary }}>{store.referrals.length}</b> найзаа урьсан
+              </span>
+            </div>
+          )}
+        </motion.div>
       </motion.div>
 
       {/* Coupons */}
